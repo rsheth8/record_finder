@@ -33,7 +33,14 @@ export default async function DiscoverPage() {
           Albums with confirmed vinyl pressings, ranked for your taste.
         </p>
       </div>
-      <DiscoverFeed recommendations={recommendations} error={error} />
+      <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">
+        <DiscoverFeed
+          recommendations={recommendations}
+          quizGenres={profile.genres}
+          quizDecades={profile.decades}
+          error={error}
+        />
+      </div>
     </div>
   );
 }

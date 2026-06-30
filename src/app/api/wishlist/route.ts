@@ -6,7 +6,7 @@ import {
 } from "@/lib/db/queries";
 
 export async function GET() {
-  return NextResponse.json(getWishlist());
+  return NextResponse.json(await getWishlist());
 }
 
 export async function POST(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  addToWishlist({
+  await addToWishlist({
     discogsReleaseId: body.discogsReleaseId,
     title: body.title,
     artist: body.artist,
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     notes: body.notes ?? "",
   });
 
-  return NextResponse.json(getWishlist());
+  return NextResponse.json(await getWishlist());
 }
 
 export async function DELETE(request: NextRequest) {
@@ -36,6 +36,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Missing discogsReleaseId" }, { status: 400 });
   }
 
-  removeFromWishlist(parseInt(id, 10));
-  return NextResponse.json(getWishlist());
+  await removeFromWishlist(parseInt(id, 10));
+  return NextResponse.json(await getWishlist());
 }

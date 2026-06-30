@@ -3,20 +3,34 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { RecommendationList } from "@/components/discover/recommendation-card";
-import type { Recommendation } from "@/lib/types";
-import { Loader2, RefreshCw } from "lucide-react";
+import { CarouselRow } from "@/components/discover/carousel-row";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { groupRecommendations } from "@/lib/recommendations/group";
+import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import { VinylLoader } from "@/components/ui/vinyl-loader";
+import { RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function DiscoverFeed({
   recommendations: initialRecommendations,
+  quizGenres = [],
+  quizDecades = [],
   error: initialError,
 }: {
   recommendations: Recommendation[];
+  quizGenres?: QuizGenre[];
+  quizDecades?: QuizDecade[];
   error?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? null);
+
+  const rows = groupRecommendations(
+    initialRecommendations,
+    quizGenres,
+    quizDecades,
+  );
 
   async function refresh() {
     setLoading(true);
@@ -44,8 +58,8 @@ export function DiscoverFeed({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      <div className="flex items-center justify-between px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
         <p className="text-sm text-zinc-400">
           {initialRecommendations.length} album
           {initialRecommendations.length !== 1 ? "s" : ""} with vinyl pressings
@@ -57,28 +71,32 @@ export function DiscoverFeed({
           disabled={loading}
           className="gap-2"
         >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           Refresh picks
         </Button>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="mx-4 rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-zinc-400">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          Finding vinyl you might love...
-        </div>
+        <VinylLoader variant="section" context="discover" />
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardTitle>No recommendations yet</CardTitle>
+          <CardDescription className="mt-2">
+            Complete the quiz and connect Spotify to generate picks.
+          </CardDescription>
+        </Card>
       ) : (
-        <RecommendationList recommendations={initialRecommendations} />
+        <div className="space-y-10 overflow-x-clip">
+          {rows.map((row) => (
+            <CarouselRow key={row.id} title={row.title} items={row.items} />
+          ))}
+        </div>
       )}
     </div>
   );

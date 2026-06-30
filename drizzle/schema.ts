@@ -36,3 +36,30 @@ export const recommendationCache = sqliteTable("recommendation_cache", {
   expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const creditLedger = sqliteTable("credit_ledger", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  delta: integer("delta").notNull(),
+  reason: text("reason").notNull(),
+  stripeSessionId: text("stripe_session_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const orders = sqliteTable("orders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  title: text("title").notNull(),
+  artist: text("artist").notNull(),
+  creditsSpent: integer("credits_spent").notNull(),
+  status: text("status").notNull().default("reserved"),
+  discogsUrl: text("discogs_url").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});

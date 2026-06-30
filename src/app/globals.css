@@ -16,3 +16,77 @@ body {
   background: var(--background);
   color: var(--foreground);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .carousel-row [data-embla-auto-scroll] {
+    animation: none !important;
+  }
+
+  .vinyl-loader-disc {
+    animation: none !important;
+  }
+}
+
+@keyframes vinyl-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vinyl-loader-disc {
+  animation: vinyl-spin 2.6s linear infinite;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at center,
+    #18181b 0%,
+    #09090b 38%,
+    #1c1c22 39%,
+    #09090b 41%,
+    #1a1a20 42%,
+    #09090b 44%,
+    #16161c 45%,
+    #09090b 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(124, 58, 237, 0.12);
+}
+
+.vinyl-loader-grooves {
+  border-radius: 9999px;
+  background: repeating-radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 2px,
+    rgba(255, 255, 255, 0.03) 2px,
+    rgba(255, 255, 255, 0.03) 3px
+  );
+  opacity: 0.9;
+}
+
+.vinyl-loader-label {
+  background: radial-gradient(
+    circle at 35% 35%,
+    #a78bfa 0%,
+    #7c3aed 45%,
+    #4c1d95 100%
+  );
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.35);
+}
+
+.vinyl-loader-overlay {
+  animation: vinyl-loader-fade-in 0.25s ease-out;
+}
+
+@keyframes vinyl-loader-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

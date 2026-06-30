@@ -76,7 +76,7 @@ export async function getTasteProfile(): Promise<TasteProfileData | null> {
 export async function saveTasteProfile(
   data: Omit<TasteProfileData, "completedAt"> & { completed?: boolean },
 ): Promise<TasteProfileData | null> {
-  saveTasteProfileToDb(data);
+  await saveTasteProfileToDb(data);
   return getTasteProfileFromDb();
 }
 

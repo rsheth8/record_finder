@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { auth, isSpotifyConfigured } from "@/lib/auth";
+import { CarouselRow } from "@/components/discover/carousel-row";
 import { SpotifyConnect } from "@/components/spotify-connect";
 import { SpotifySync } from "@/components/spotify-sync";
-import { RecommendationList } from "@/components/discover/recommendation-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getCachedRecommendations } from "@/lib/db/queries";
@@ -14,8 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const session = await auth();
   const profile = await getTasteProfile();
-  const recommendations = getCachedRecommendations() ?? [];
-  const topPicks = recommendations.slice(0, 5);
+  const recommendations = (await getCachedRecommendations()) ?? [];
+  const topPicks = [...recommendations]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
 
   return (
     <div className="space-y-8">
@@ -72,14 +74,14 @@ export default async function HomePage() {
       )}
 
       {topPicks.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
+        <section className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">
+          <div className="mb-3 flex items-center justify-between px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
             <h2 className="text-xl font-semibold">Top picks for you</h2>
             <Link href="/discover" className="text-sm text-violet-400 hover:underline">
               View all
             </Link>
           </div>
-          <RecommendationList recommendations={topPicks} />
+          <CarouselRow title="" items={topPicks} bleed />
         </section>
       )}
     </div>

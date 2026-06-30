@@ -4,8 +4,10 @@ import { WishlistCard } from "@/components/album/wishlist-button";
 import { Button } from "@/components/ui/button";
 import { Heart } from "lucide-react";
 
-export default function WishlistPage() {
-  const items = getWishlist();
+export const dynamic = "force-dynamic";
+
+export default async function WishlistPage() {
+  const items = await getWishlist();
 
   return (
     <div className="space-y-6">

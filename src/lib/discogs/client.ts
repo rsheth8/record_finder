@@ -66,6 +66,34 @@ export async function searchVinylRelease(
   };
 }
 
+export async function getMarketplaceStats(releaseId: number): Promise<{
+  lowestPrice: number | null;
+  currency: string;
+  numForSale: number;
+  discogsUrl: string;
+} | null> {
+  try {
+    const data = await discogsFetch<{
+      lowest_price?: number | null;
+      num_for_sale?: number;
+    }>(`/marketplace/stats/${releaseId}`);
+
+    return {
+      lowestPrice: data.lowest_price ?? null,
+      currency: "USD",
+      numForSale: data.num_for_sale ?? 0,
+      discogsUrl: `https://www.discogs.com/sell/release/${releaseId}`,
+    };
+  } catch {
+    return {
+      lowestPrice: null,
+      currency: "USD",
+      numForSale: 0,
+      discogsUrl: `https://www.discogs.com/sell/release/${releaseId}`,
+    };
+  }
+}
+
 export async function getRelease(id: number): Promise<DiscogsRelease | null> {
   try {
     const data = await discogsFetch<{
@@ -90,6 +118,8 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
       data.images?.[0]?.uri ??
       null;
 
+    const marketplace = await getMarketplaceStats(data.id);
+
     return {
       id: data.id,
       title: titleParts.join(" - ") || data.title,
@@ -109,6 +139,7 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
       communityRating: data.community?.rating?.average ?? null,
       ratingCount: data.community?.rating?.count ?? null,
       spotifyUrl: null,
+      marketplace: marketplace ?? undefined,
     };
   } catch {
     return null;

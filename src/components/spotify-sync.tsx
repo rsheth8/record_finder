@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { VinylLoader } from "@/components/ui/vinyl-loader";
 
 export function SpotifySync() {
   const { data: session, status } = useSession();
@@ -34,12 +35,7 @@ export function SpotifySync() {
   if (status !== "authenticated" || syncState === "idle") return null;
 
   if (syncState === "syncing") {
-    return (
-      <p className="flex items-center gap-2 text-sm text-zinc-400">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Syncing your Spotify listening history...
-      </p>
-    );
+    return <VinylLoader variant="inline" context="spotify" />;
   }
 
   if (syncState === "done") {

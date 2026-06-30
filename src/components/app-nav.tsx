@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Disc3, Compass, ClipboardList, Heart } from "lucide-react";
+import { CreditsNavLink } from "@/components/credits/credits-nav-link";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -42,6 +43,7 @@ export function AppNav() {
               </Link>
             );
           })}
+          <CreditsNavLink />
         </nav>
       </div>
     </header>

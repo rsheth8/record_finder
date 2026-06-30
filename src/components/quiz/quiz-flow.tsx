@@ -15,6 +15,7 @@ import {
   type QuizMood,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { VinylLoader } from "@/components/ui/vinyl-loader";
 
 const STEPS = [
   "genres",
@@ -85,6 +86,7 @@ export function QuizFlow({ initial }: { initial?: {
   );
   const [deepCutLevel, setDeepCutLevel] = useState(initial?.deepCutLevel ?? 50);
   const [saving, setSaving] = useState(false);
+  const [navigatingToDiscover, setNavigatingToDiscover] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const step = STEPS[stepIndex];
@@ -131,14 +133,22 @@ export function QuizFlow({ initial }: { initial?: {
   }
 
   async function finish() {
+    setNavigatingToDiscover(true);
     const ok = await save(true);
-    if (!ok) return;
+    if (!ok) {
+      setNavigatingToDiscover(false);
+      return;
+    }
 
     router.push("/discover");
     router.refresh();
   }
 
   return (
+    <>
+      {navigatingToDiscover && (
+        <VinylLoader variant="overlay" context="quiz" />
+      )}
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <div className="mb-2 flex items-center justify-between text-sm text-zinc-400">
@@ -263,5 +273,6 @@ export function QuizFlow({ initial }: { initial?: {
         )}
       </div>
     </div>
+    </>
   );
 }

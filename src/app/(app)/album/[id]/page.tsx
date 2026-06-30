@@ -8,7 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/auth";
 import { searchSpotifyAlbum } from "@/lib/spotify/client";
+import { usdToCredits, formatUsd } from "@/lib/commerce/pricing";
+import { BuyWithCreditsButton } from "@/components/album/buy-with-credits-button";
 import { ExternalLink, ArrowLeft } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 export default async function AlbumPage({
   params,
@@ -34,7 +38,9 @@ export default async function AlbumPage({
     spotifyUrl = spotifyAlbum?.spotifyUrl ?? null;
   }
 
-  const inWishlist = isInWishlist(releaseId);
+  const inWishlist = await isInWishlist(releaseId);
+  const marketplace = release.marketplace;
+  const creditCost = usdToCredits(marketplace?.lowestPrice ?? 5);
 
   return (
     <div className="space-y-8">
@@ -86,7 +92,23 @@ export default async function AlbumPage({
             </p>
           )}
 
-          <div className="flex flex-wrap gap-3">
+          {marketplace && marketplace.numForSale > 0 && (
+            <p className="text-sm text-violet-300">
+              From {marketplace.lowestPrice ? formatUsd(marketplace.lowestPrice) : "—"} ·{" "}
+              {marketplace.numForSale} cop{marketplace.numForSale === 1 ? "y" : "ies"} for sale
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-start gap-3">
+            <BuyWithCreditsButton
+              discogsReleaseId={releaseId}
+              title={release.title}
+              artist={release.artist}
+              creditCost={creditCost}
+              lowestPriceUsd={marketplace?.lowestPrice ?? null}
+              numForSale={marketplace?.numForSale ?? 0}
+              signedIn={!!session?.user}
+            />
             <WishlistButton
               discogsReleaseId={releaseId}
               title={release.title}

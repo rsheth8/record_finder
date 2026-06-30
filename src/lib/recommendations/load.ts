@@ -28,17 +28,17 @@ export async function loadRecommendations(
   }
 
   if (!refresh) {
-    const cached = getCachedRecommendations();
+    const cached = await getCachedRecommendations();
     if (cached && cached.length > 0) {
       return { recommendations: cached };
     }
   } else {
-    clearRecommendationCache();
+    await clearRecommendationCache();
   }
 
   try {
     const session = await auth();
-    const snapshot = getSpotifySnapshot();
+    const snapshot = await getSpotifySnapshot();
     let recommendations: Recommendation[];
 
     if (session?.accessToken) {
@@ -49,7 +49,7 @@ export async function loadRecommendations(
         if (!snapshot || snapshot.topArtists.length === 0) {
           topArtists = await fetchTopArtists(session.accessToken);
           topGenres = deriveTopGenres(topArtists);
-          saveSpotifySnapshot({
+          await saveSpotifySnapshot({
             topArtists,
             topAlbums: snapshot?.topAlbums ?? [],
             topGenres,
@@ -83,7 +83,7 @@ export async function loadRecommendations(
     }
 
     if (recommendations.length > 0) {
-      cacheRecommendations(recommendations);
+      await cacheRecommendations(recommendations);
     }
 
     return { recommendations };

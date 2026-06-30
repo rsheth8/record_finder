@@ -99,6 +99,12 @@ export interface DiscogsRelease {
   communityRating: number | null;
   ratingCount: number | null;
   spotifyUrl: string | null;
+  marketplace?: {
+    lowestPrice: number | null;
+    currency: string;
+    numForSale: number;
+    discogsUrl: string;
+  };
 }
 
 export interface WishlistItem {

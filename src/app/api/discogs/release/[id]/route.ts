@@ -28,7 +28,7 @@ export async function GET(
 
     return NextResponse.json({
       ...release,
-      inWishlist: isInWishlist(releaseId),
+      inWishlist: await isInWishlist(releaseId),
     });
   } catch (error) {
     return NextResponse.json(

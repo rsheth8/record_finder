@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTasteProfile, saveTasteProfile } from "@/lib/db/queries";
+import {
+  attachTasteProfileCookie,
+  getTasteProfile,
+  saveTasteProfile,
+} from "@/lib/taste-profile-store";
 import type { AlbumPreference, QuizDecade, QuizGenre, QuizMood } from "@/lib/types";
 
 export async function GET() {
-  const profile = getTasteProfile();
+  const profile = await getTasteProfile();
   return NextResponse.json(profile);
 }
 
@@ -19,6 +23,7 @@ export async function POST(request: NextRequest) {
     completed: Boolean(body.completed),
   };
 
-  saveTasteProfile(data);
-  return NextResponse.json(getTasteProfile());
+  const profile = await saveTasteProfile(data);
+  const response = NextResponse.json(profile);
+  return attachTasteProfileCookie(response, profile);
 }

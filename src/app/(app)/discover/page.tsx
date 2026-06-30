@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { DiscoverFeed } from "@/components/discover/discover-feed";
 import { Button } from "@/components/ui/button";
-import { getTasteProfile } from "@/lib/db/queries";
+import { getTasteProfile } from "@/lib/taste-profile-store";
 import { loadRecommendations } from "@/lib/recommendations/load";
 
+export const dynamic = "force-dynamic";
+
 export default async function DiscoverPage() {
-  const profile = getTasteProfile();
+  const profile = await getTasteProfile();
 
   if (!profile?.completedAt) {
     return (

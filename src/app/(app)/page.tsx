@@ -5,12 +5,15 @@ import { SpotifySync } from "@/components/spotify-sync";
 import { RecommendationList } from "@/components/discover/recommendation-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { getTasteProfile, getCachedRecommendations } from "@/lib/db/queries";
+import { getCachedRecommendations } from "@/lib/db/queries";
+import { getTasteProfile } from "@/lib/taste-profile-store";
 import { Compass, ClipboardList } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await auth();
-  const profile = getTasteProfile();
+  const profile = await getTasteProfile();
   const recommendations = getCachedRecommendations() ?? [];
   const topPicks = recommendations.slice(0, 5);
 

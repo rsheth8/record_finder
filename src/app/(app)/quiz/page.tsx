@@ -1,8 +1,10 @@
 import { QuizFlow } from "@/components/quiz/quiz-flow";
-import { getTasteProfile } from "@/lib/db/queries";
+import { getTasteProfile } from "@/lib/taste-profile-store";
 
-export default function QuizPage() {
-  const profile = getTasteProfile();
+export const dynamic = "force-dynamic";
+
+export default async function QuizPage() {
+  const profile = await getTasteProfile();
 
   return (
     <div className="space-y-6">

@@ -1,12 +1,12 @@
 import { auth } from "@/lib/auth";
 import {
-  getTasteProfile,
   getSpotifySnapshot,
   getCachedRecommendations,
   cacheRecommendations,
   clearRecommendationCache,
   saveSpotifySnapshot,
 } from "@/lib/db/queries";
+import { getTasteProfile } from "@/lib/taste-profile-store";
 import {
   fetchRecommendations,
   fetchTopArtists,
@@ -22,7 +22,7 @@ import type { Recommendation } from "@/lib/types";
 export async function loadRecommendations(
   refresh = false,
 ): Promise<{ recommendations: Recommendation[]; error?: string }> {
-  const profile = getTasteProfile();
+  const profile = await getTasteProfile();
   if (!profile?.completedAt) {
     return { recommendations: [], error: "Complete the taste quiz first" };
   }

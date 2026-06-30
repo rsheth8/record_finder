@@ -85,36 +85,55 @@ export function QuizFlow({ initial }: { initial?: {
   );
   const [deepCutLevel, setDeepCutLevel] = useState(initial?.deepCutLevel ?? 50);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const step = STEPS[stepIndex];
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
 
-  async function save(completed: boolean) {
+  async function save(completed: boolean): Promise<boolean> {
     setSaving(true);
-    await fetch("/api/quiz", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        genres,
-        decades,
-        moods,
-        albumPreference,
-        deepCutLevel,
-        completed,
-      }),
-    });
-    setSaving(false);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          genres,
+          decades,
+          moods,
+          albumPreference,
+          deepCutLevel,
+          completed,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save quiz progress");
+      }
+
+      return true;
+    } catch {
+      setError("Could not save your answers. Please try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function next() {
-    await save(false);
+    const ok = await save(false);
+    if (!ok) return;
+
     if (stepIndex < STEPS.length - 1) {
       setStepIndex(stepIndex + 1);
     }
   }
 
   async function finish() {
-    await save(true);
+    const ok = await save(true);
+    if (!ok) return;
+
     router.push("/discover");
     router.refresh();
   }
@@ -220,6 +239,10 @@ export function QuizFlow({ initial }: { initial?: {
           </>
         )}
       </Card>
+
+      {error && (
+        <p className="text-sm text-red-400">{error}</p>
+      )}
 
       <div className="flex justify-between">
         <Button

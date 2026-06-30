@@ -14,7 +14,7 @@ import type {
   QuizMood,
 } from "@/lib/types";
 
-export function getTasteProfile(): TasteProfileData | null {
+export function getTasteProfileFromDb(): TasteProfileData | null {
   const row = db.select().from(tasteProfile).orderBy(desc(tasteProfile.id)).get();
   if (!row) return null;
 
@@ -28,7 +28,7 @@ export function getTasteProfile(): TasteProfileData | null {
   };
 }
 
-export function saveTasteProfile(data: Omit<TasteProfileData, "completedAt"> & { completed?: boolean }) {
+export function saveTasteProfileToDb(data: Omit<TasteProfileData, "completedAt"> & { completed?: boolean }) {
   const existing = db.select().from(tasteProfile).orderBy(desc(tasteProfile.id)).get();
   const now = new Date();
 

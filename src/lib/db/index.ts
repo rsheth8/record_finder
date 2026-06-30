@@ -1,14 +1,26 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { mkdirSync } from "fs";
+import { tmpdir } from "os";
 import { dirname, join } from "path";
 import * as schema from "../../../drizzle/schema";
 
-const dbPath =
-  process.env.DATABASE_URL?.replace("file:", "") ??
-  join(process.cwd(), "data", "record_finder.db");
+function getDbPath(): string {
+  if (process.env.DATABASE_URL?.startsWith("file:")) {
+    return process.env.DATABASE_URL.replace("file:", "");
+  }
+  // Vercel serverless only allows writes to /tmp
+  if (process.env.VERCEL) {
+    return join(tmpdir(), "record_finder.db");
+  }
+  return join(process.cwd(), "data", "record_finder.db");
+}
 
-mkdirSync(dirname(dbPath), { recursive: true });
+const dbPath = getDbPath();
+
+if (!process.env.VERCEL) {
+  mkdirSync(dirname(dbPath), { recursive: true });
+}
 
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");

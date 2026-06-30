@@ -1,0 +1,160 @@
+import type { DiscogsRelease, Recommendation } from "@/lib/types";
+
+const DISCOGS_API = "https://api.discogs.com";
+
+function discogsHeaders(): HeadersInit {
+  const token = process.env.DISCOGS_TOKEN;
+  return {
+    Authorization: `Discogs token=${token}`,
+    "User-Agent": "RecordFinder/1.0",
+  };
+}
+
+async function discogsFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${DISCOGS_API}${path}`, {
+    headers: discogsHeaders(),
+    next: { revalidate: 86400 },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Discogs API error: ${res.status} ${text}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export async function searchVinylRelease(
+  artist: string,
+  title: string,
+): Promise<Recommendation | null> {
+  const q = encodeURIComponent(`${artist} ${title}`);
+  const data = await discogsFetch<{
+    results: {
+      id: number;
+      title: string;
+      year?: string;
+      cover_image?: string;
+      genre?: string[];
+      style?: string[];
+      community?: { want: number; have: number };
+    }[];
+  }>(
+    `/database/search?q=${q}&type=release&format=Vinyl&per_page=5`,
+  );
+
+  const result = data.results[0];
+  if (!result) return null;
+
+  const [artistName, ...titleParts] = result.title.includes(" - ")
+    ? result.title.split(" - ")
+    : ["Unknown", result.title];
+
+  return {
+    discogsReleaseId: result.id,
+    title: titleParts.join(" - ") || result.title,
+    artist: artistName,
+    year: result.year ? parseInt(result.year, 10) : null,
+    coverUrl: result.cover_image ?? null,
+    genres: [...(result.genre ?? []), ...(result.style ?? [])],
+    communityRating: null,
+    ratingCount: null,
+    spotifyAlbumId: null,
+    spotifyUrl: null,
+    score: 0,
+    reasons: [],
+  };
+}
+
+export async function getRelease(id: number): Promise<DiscogsRelease | null> {
+  try {
+    const data = await discogsFetch<{
+      id: number;
+      title: string;
+      year?: number;
+      genres?: string[];
+      styles?: string[];
+      formats?: { name: string; descriptions?: string[] }[];
+      tracklist?: { position: string; title: string; duration?: string }[];
+      images?: { uri: string; type: string }[];
+      community?: { rating: { average: number; count: number } };
+      uri?: string;
+    }>(`/releases/${id}`);
+
+    const [artist, ...titleParts] = data.title.includes(" - ")
+      ? data.title.split(" - ")
+      : ["Unknown", data.title];
+
+    const cover =
+      data.images?.find((i) => i.type === "primary")?.uri ??
+      data.images?.[0]?.uri ??
+      null;
+
+    return {
+      id: data.id,
+      title: titleParts.join(" - ") || data.title,
+      artist,
+      year: data.year ?? null,
+      coverUrl: cover,
+      genres: data.genres ?? [],
+      styles: data.styles ?? [],
+      formats: (data.formats ?? []).map(
+        (f) => `${f.name}${f.descriptions?.length ? ` (${f.descriptions.join(", ")})` : ""}`,
+      ),
+      tracklist: (data.tracklist ?? []).map((t) => ({
+        position: t.position,
+        title: t.title,
+        duration: t.duration ?? "",
+      })),
+      communityRating: data.community?.rating?.average ?? null,
+      ratingCount: data.community?.rating?.count ?? null,
+      spotifyUrl: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function browseByGenreDecade(
+  genres: string[],
+  decades: string[],
+  limit = 20,
+): Promise<Recommendation[]> {
+  const decadeYear = decades[0]?.replace("s", "") ?? "199";
+  const genre = genres[0] ?? "Rock";
+  const q = encodeURIComponent(`${genre} ${decadeYear}`);
+
+  const data = await discogsFetch<{
+    results: {
+      id: number;
+      title: string;
+      year?: string;
+      cover_image?: string;
+      genre?: string[];
+      style?: string[];
+    }[];
+  }>(
+    `/database/search?q=${q}&type=release&format=Vinyl&per_page=${limit}&sort=want`,
+  );
+
+  return data.results.map((r) => {
+    const [artistName, ...titleParts] = r.title.includes(" - ")
+      ? r.title.split(" - ")
+      : ["Unknown", r.title];
+
+    return {
+      discogsReleaseId: r.id,
+      title: titleParts.join(" - ") || r.title,
+      artist: artistName,
+      year: r.year ? parseInt(r.year, 10) : null,
+      coverUrl: r.cover_image ?? null,
+      genres: [...(r.genre ?? []), ...(r.style ?? [])],
+      communityRating: null,
+      ratingCount: null,
+      spotifyAlbumId: null,
+      spotifyUrl: null,
+      score: 0,
+      reasons: [`Matches your ${genre} and ${decades[0] ?? "era"} preferences`],
+    };
+  });
+}

@@ -16,9 +16,9 @@ export function PosterCard({
     <Link
       href={`/album/${rec.discogsReleaseId}`}
       className={cn(
-        "group relative block shrink-0 select-none overflow-hidden rounded-md bg-zinc-900 shadow-lg",
+        "group relative block shrink-0 select-none overflow-hidden rounded-lg bg-zinc-900 shadow-md",
         "origin-center transition-[transform,box-shadow] duration-300 ease-out",
-        "hover:z-20 hover:scale-[1.08] hover:shadow-2xl hover:shadow-violet-950/40",
+        "hover:z-20 hover:scale-[1.06] hover:shadow-xl hover:shadow-black/50",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500",
         className,
       )}
@@ -39,9 +39,9 @@ export function PosterCard({
             No art
           </div>
         )}
-        <div className="absolute inset-0 rounded-md ring-1 ring-inset ring-white/10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent opacity-90" />
-        <div className="absolute inset-x-0 bottom-0 translate-y-1 p-3 transition-transform duration-300 group-hover:translate-y-0">
+        <div className="absolute inset-0 rounded-lg ring-1 ring-inset ring-white/10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-3">
           <p className="line-clamp-2 text-sm font-semibold leading-tight text-white">
             {rec.title}
           </p>
@@ -50,7 +50,7 @@ export function PosterCard({
             {rec.year ? ` · ${rec.year}` : ""}
           </p>
           {rec.reasons[0] && (
-            <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-zinc-400 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+            <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-zinc-400 sm:opacity-0 sm:transition-opacity sm:duration-300 sm:group-hover:opacity-100">
               {rec.reasons[0]}
             </p>
           )}

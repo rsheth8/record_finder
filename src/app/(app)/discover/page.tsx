@@ -26,14 +26,15 @@ export default async function DiscoverPage() {
   const { recommendations, error } = await loadRecommendations(false);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-zinc-50">Discover</h1>
-        <p className="mt-2 text-zinc-400">
-          Albums with confirmed vinyl pressings, ranked for your taste.
+    <div className="space-y-2">
+      <div className="px-4 sm:px-0">
+        <h1 className="text-2xl font-bold text-zinc-50 sm:text-3xl">Discover</h1>
+        <p className="mt-2 max-w-2xl text-zinc-400">
+          Albums with confirmed vinyl pressings, ranked for your taste. Search, filter,
+          and browse by genre or era.
         </p>
       </div>
-      <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">
+      <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 pt-2">
         <DiscoverFeed
           recommendations={recommendations}
           quizGenres={profile.genres}

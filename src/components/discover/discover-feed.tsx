@@ -1,15 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CarouselRow } from "@/components/discover/carousel-row";
+import { DiscoverFilters } from "@/components/discover/discover-filters";
+import { DiscoverGrid } from "@/components/discover/discover-grid";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import {
+  DEFAULT_DISCOVER_FILTERS,
+  filterRecommendations,
+  hasActiveFilters,
+} from "@/lib/recommendations/filter";
 import { groupRecommendations } from "@/lib/recommendations/group";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
-import { RefreshCw } from "lucide-react";
+import { LayoutGrid, RefreshCw, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type ViewMode = "rows" | "grid";
 
 export function DiscoverFeed({
   recommendations: initialRecommendations,
@@ -25,12 +34,20 @@ export function DiscoverFeed({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? null);
+  const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
+  const [viewMode, setViewMode] = useState<ViewMode>("rows");
 
-  const rows = groupRecommendations(
-    initialRecommendations,
-    quizGenres,
-    quizDecades,
+  const filtered = useMemo(
+    () => filterRecommendations(initialRecommendations, filters),
+    [initialRecommendations, filters],
   );
+
+  const filtering = hasActiveFilters(filters);
+
+  const rows = useMemo(() => {
+    if (filtering || viewMode === "grid") return [];
+    return groupRecommendations(filtered, quizGenres, quizDecades);
+  }, [filtered, quizGenres, quizDecades, filtering, viewMode]);
 
   async function refresh() {
     setLoading(true);
@@ -57,13 +74,51 @@ export function DiscoverFeed({
     }
   }
 
+  const filteredRowTitle = filtering
+    ? filters.search.trim()
+      ? `Results for "${filters.search.trim()}"`
+      : "Filtered picks"
+    : "All albums";
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
-        <p className="text-sm text-zinc-400">
-          {initialRecommendations.length} album
-          {initialRecommendations.length !== 1 ? "s" : ""} with vinyl pressings
-        </p>
+    <div className="space-y-6">
+      <DiscoverFilters
+        recommendations={initialRecommendations}
+        filters={filters}
+        onChange={setFilters}
+        resultCount={filtered.length}
+      />
+
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <div className="flex rounded-lg border border-zinc-800 p-0.5">
+          <button
+            type="button"
+            onClick={() => setViewMode("rows")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
+              viewMode === "rows"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300",
+            )}
+          >
+            <Rows3 className="h-3.5 w-3.5" />
+            Rows
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("grid")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
+              viewMode === "grid"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300",
+            )}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Grid
+          </button>
+        </div>
+
         <Button
           variant="outline"
           size="sm"
@@ -84,15 +139,30 @@ export function DiscoverFeed({
 
       {loading ? (
         <VinylLoader variant="section" context="discover" />
-      ) : rows.length === 0 ? (
-        <Card>
-          <CardTitle>No recommendations yet</CardTitle>
+      ) : filtered.length === 0 ? (
+        <Card className="mx-4 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+          <CardTitle>No matches</CardTitle>
           <CardDescription className="mt-2">
-            Complete the quiz and connect Spotify to generate picks.
+            {initialRecommendations.length === 0
+              ? "Complete the quiz and connect Spotify to generate picks."
+              : "Try clearing filters or broadening your search."}
           </CardDescription>
         </Card>
+      ) : viewMode === "grid" || filtering ? (
+        <div className="space-y-4 pb-8">
+          {!filtering && viewMode === "grid" ? (
+            <h2 className="px-4 text-lg font-semibold text-zinc-100 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+              All albums
+            </h2>
+          ) : (
+            <h2 className="px-4 text-lg font-semibold text-zinc-100 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+              {filteredRowTitle}
+            </h2>
+          )}
+          <DiscoverGrid items={filtered} />
+        </div>
       ) : (
-        <div className="space-y-10 overflow-x-clip">
+        <div className="space-y-12 pb-8">
           {rows.map((row) => (
             <CarouselRow key={row.id} title={row.title} items={row.items} />
           ))}

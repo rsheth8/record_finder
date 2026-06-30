@@ -2,6 +2,28 @@ import type { SpotifyAlbum, SpotifyArtist } from "@/lib/types";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
+type SpotifyAlbumPayload = {
+  id: string;
+  name: string;
+  release_date: string;
+  external_urls: { spotify: string };
+  images: { url: string }[];
+  artists: { id: string; name: string }[];
+  album_type?: string;
+};
+
+function mapSpotifyAlbum(album: SpotifyAlbumPayload): SpotifyAlbum {
+  return {
+    id: album.id,
+    name: album.name,
+    artist: album.artists[0]?.name ?? "Unknown",
+    artistId: album.artists[0]?.id ?? "",
+    releaseDate: album.release_date,
+    imageUrl: album.images[0]?.url ?? null,
+    spotifyUrl: album.external_urls.spotify,
+  };
+}
+
 async function spotifyFetch<T>(path: string, accessToken: string): Promise<T> {
   const res = await fetch(`${SPOTIFY_API}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -42,34 +64,17 @@ export async function fetchTopAlbums(
   limit = 20,
 ): Promise<SpotifyAlbum[]> {
   const tracksData = await spotifyFetch<{
-    items: {
-      album: {
-        id: string;
-        name: string;
-        release_date: string;
-        external_urls: { spotify: string };
-        images: { url: string }[];
-        artists: { id: string; name: string }[];
-      };
-    }[];
+    items: { album: SpotifyAlbumPayload }[];
   }>(`/me/top/tracks?limit=50&time_range=medium_term`, accessToken);
 
   const seen = new Set<string>();
   const albums: SpotifyAlbum[] = [];
 
   for (const item of tracksData.items) {
-    const a = item.album;
-    if (seen.has(a.id)) continue;
-    seen.add(a.id);
-    albums.push({
-      id: a.id,
-      name: a.name,
-      artist: a.artists[0]?.name ?? "Unknown",
-      artistId: a.artists[0]?.id ?? "",
-      releaseDate: a.release_date,
-      imageUrl: a.images[0]?.url ?? null,
-      spotifyUrl: a.external_urls.spotify,
-    });
+    const album = item.album;
+    if (seen.has(album.id)) continue;
+    seen.add(album.id);
+    albums.push(mapSpotifyAlbum(album));
     if (albums.length >= limit) break;
   }
 
@@ -89,55 +94,100 @@ export function deriveTopGenres(artists: SpotifyArtist[]): string[] {
     .map(([genre]) => genre);
 }
 
+async function fetchArtistAlbums(
+  accessToken: string,
+  artistId: string,
+  limit = 10,
+): Promise<SpotifyAlbum[]> {
+  const data = await spotifyFetch<{ items: SpotifyAlbumPayload[] }>(
+    `/artists/${artistId}/albums?include_groups=album&limit=${limit}`,
+    accessToken,
+  );
+
+  return data.items
+    .filter((album) => album.album_type !== "single")
+    .map(mapSpotifyAlbum);
+}
+
+async function searchAlbumsByGenre(
+  accessToken: string,
+  genre: string,
+  limit = 10,
+): Promise<SpotifyAlbum[]> {
+  const q = encodeURIComponent(`genre:${genre}`);
+  const data = await spotifyFetch<{ albums: { items: SpotifyAlbumPayload[] } }>(
+    `/search?q=${q}&type=album&limit=${limit}`,
+    accessToken,
+  );
+
+  return data.albums.items.map(mapSpotifyAlbum);
+}
+
+/** Spotify removed /recommendations for new apps — use artist albums + search instead. */
+export async function fetchDiscoveryAlbums(
+  accessToken: string,
+  seeds: { artists?: SpotifyArtist[]; genres?: string[] },
+  limit = 30,
+): Promise<SpotifyAlbum[]> {
+  const seen = new Set<string>();
+  const albums: SpotifyAlbum[] = [];
+
+  function add(next: SpotifyAlbum[]) {
+    for (const album of next) {
+      if (seen.has(album.id)) continue;
+      seen.add(album.id);
+      albums.push(album);
+      if (albums.length >= limit) return;
+    }
+  }
+
+  for (const artist of seeds.artists?.slice(0, 3) ?? []) {
+    try {
+      add(await fetchArtistAlbums(accessToken, artist.id, 10));
+    } catch {
+      // Artist albums unavailable — continue with other sources.
+    }
+    if (albums.length >= limit) break;
+  }
+
+  if (albums.length < limit) {
+    try {
+      add(await fetchTopAlbums(accessToken, 15));
+    } catch {
+      // Top tracks unavailable — continue with genre search.
+    }
+  }
+
+  for (const genre of seeds.genres?.slice(0, 3) ?? []) {
+    if (albums.length >= limit) break;
+    try {
+      add(await searchAlbumsByGenre(accessToken, genre, 10));
+    } catch {
+      // Genre search failed — try next genre.
+    }
+  }
+
+  return albums.slice(0, limit);
+}
+
 export async function fetchRecommendations(
   accessToken: string,
   seeds: { artists?: string[]; genres?: string[] },
   limit = 30,
 ): Promise<SpotifyAlbum[]> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (seeds.artists?.length) {
-    params.set("seed_artists", seeds.artists.slice(0, 5).join(","));
-  }
-  if (seeds.genres?.length) {
-    params.set("seed_genres", seeds.genres.slice(0, 5).join(","));
-  }
+  const artists =
+    seeds.artists?.map((id) => ({
+      id,
+      name: "",
+      genres: [],
+      popularity: 0,
+    })) ?? [];
 
-  if (!params.has("seed_artists") && !params.has("seed_genres")) {
-    return [];
-  }
-
-  const data = await spotifyFetch<{
-    tracks: {
-      album: {
-        id: string;
-        name: string;
-        release_date: string;
-        external_urls: { spotify: string };
-        images: { url: string }[];
-        artists: { id: string; name: string }[];
-      };
-    }[];
-  }>(`/recommendations?${params}`, accessToken);
-
-  const seen = new Set<string>();
-  const albums: SpotifyAlbum[] = [];
-
-  for (const track of data.tracks) {
-    const album = track.album;
-    if (seen.has(album.id)) continue;
-    seen.add(album.id);
-    albums.push({
-      id: album.id,
-      name: album.name,
-      artist: album.artists[0]?.name ?? "Unknown",
-      artistId: album.artists[0]?.id ?? "",
-      releaseDate: album.release_date,
-      imageUrl: album.images[0]?.url ?? null,
-      spotifyUrl: album.external_urls.spotify,
-    });
-  }
-
-  return albums;
+  return fetchDiscoveryAlbums(
+    accessToken,
+    { artists, genres: seeds.genres },
+    limit,
+  );
 }
 
 export async function searchSpotifyAlbum(
@@ -146,29 +196,13 @@ export async function searchSpotifyAlbum(
   title: string,
 ): Promise<SpotifyAlbum | null> {
   const q = encodeURIComponent(`album:${title} artist:${artist}`);
-  const data = await spotifyFetch<{
-    albums: {
-      items: {
-        id: string;
-        name: string;
-        release_date: string;
-        external_urls: { spotify: string };
-        images: { url: string }[];
-        artists: { id: string; name: string }[];
-      }[];
-    };
-  }>(`/search?q=${q}&type=album&limit=1`, accessToken);
+  const data = await spotifyFetch<{ albums: { items: SpotifyAlbumPayload[] } }>(
+    `/search?q=${q}&type=album&limit=1`,
+    accessToken,
+  );
 
   const album = data.albums.items[0];
   if (!album) return null;
 
-  return {
-    id: album.id,
-    name: album.name,
-    artist: album.artists[0]?.name ?? artist,
-    artistId: album.artists[0]?.id ?? "",
-    releaseDate: album.release_date,
-    imageUrl: album.images[0]?.url ?? null,
-    spotifyUrl: album.external_urls.spotify,
-  };
+  return mapSpotifyAlbum(album);
 }

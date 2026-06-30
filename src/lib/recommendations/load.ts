@@ -8,7 +8,7 @@ import {
 } from "@/lib/db/queries";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import {
-  fetchRecommendations,
+  fetchDiscoveryAlbums,
   fetchTopArtists,
   deriveTopGenres,
 } from "@/lib/spotify/client";
@@ -45,35 +45,37 @@ export async function loadRecommendations(
       let topArtists = snapshot?.topArtists ?? [];
       let topGenres = snapshot?.topGenres ?? [];
 
-      if (!snapshot || snapshot.topArtists.length === 0) {
-        topArtists = await fetchTopArtists(session.accessToken);
-        topGenres = deriveTopGenres(topArtists);
-        saveSpotifySnapshot({
-          topArtists,
-          topAlbums: snapshot?.topAlbums ?? [],
-          topGenres,
-        });
-      }
+      try {
+        if (!snapshot || snapshot.topArtists.length === 0) {
+          topArtists = await fetchTopArtists(session.accessToken);
+          topGenres = deriveTopGenres(topArtists);
+          saveSpotifySnapshot({
+            topArtists,
+            topAlbums: snapshot?.topAlbums ?? [],
+            topGenres,
+          });
+        }
 
-      const seeds = {
-        artists: topArtists.slice(0, 3).map((a) => a.id),
-        genres: mapQuizGenresToSpotify(profile.genres),
-      };
-
-      const candidates = await fetchRecommendations(
-        session.accessToken,
-        seeds,
-        30,
-      );
-
-      if (candidates.length > 0) {
-        recommendations = await scoreCandidates(
-          candidates,
-          profile,
-          topArtists,
-          topGenres,
+        const candidates = await fetchDiscoveryAlbums(
+          session.accessToken,
+          {
+            artists: topArtists.slice(0, 3),
+            genres: mapQuizGenresToSpotify(profile.genres),
+          },
+          30,
         );
-      } else {
+
+        if (candidates.length > 0) {
+          recommendations = await scoreCandidates(
+            candidates,
+            profile,
+            topArtists,
+            topGenres,
+          );
+        } else {
+          recommendations = await getQuizOnlyRecommendations(profile);
+        }
+      } catch {
         recommendations = await getQuizOnlyRecommendations(profile);
       }
     } else {

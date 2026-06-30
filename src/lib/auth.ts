@@ -1,10 +1,20 @@
 import NextAuth from "next-auth";
 import Spotify from "next-auth/providers/spotify";
 
-// Vercel sets VERCEL_URL without a protocol; Auth.js needs a full AUTH_URL.
-if (!process.env.AUTH_URL && process.env.VERCEL_URL) {
-  process.env.AUTH_URL = `https://${process.env.VERCEL_URL}`;
+function ensureAuthUrl() {
+  if (process.env.AUTH_URL) return;
+
+  const host =
+    process.env.VERCEL_ENV === "production"
+      ? process.env.VERCEL_PROJECT_PRODUCTION_URL
+      : process.env.VERCEL_URL;
+
+  if (host) {
+    process.env.AUTH_URL = `https://${host}`;
+  }
 }
+
+ensureAuthUrl();
 
 const spotifyConfigured =
   Boolean(process.env.SPOTIFY_CLIENT_ID) &&
@@ -19,6 +29,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           clientId: process.env.SPOTIFY_CLIENT_ID,
           clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
           authorization: {
+            url: "https://accounts.spotify.com/authorize",
             params: {
               scope:
                 "user-top-read user-read-recently-played user-library-read",

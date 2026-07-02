@@ -20,9 +20,25 @@ export const spotifySnapshot = sqliteTable("spotify_snapshot", {
   topArtists: text("top_artists").notNull().default("[]"),
   topAlbums: text("top_albums").notNull().default("[]"),
   topGenres: text("top_genres").notNull().default("[]"),
+  topArtistsByTerm: text("top_artists_by_term").notNull().default("{}"),
+  topTracksByTerm: text("top_tracks_by_term").notNull().default("{}"),
+  savedAlbums: text("saved_albums").notNull().default("[]"),
+  savedTracks: text("saved_tracks").notNull().default("[]"),
+  recentlyPlayed: text("recently_played").notNull().default("[]"),
+  tasteVector: text("taste_vector").notNull().default("{}"),
   fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({
   userIdx: uniqueIndex("spotify_snapshot_user_idx").on(t.userId),
+}));
+
+export const quizResponses = sqliteTable("quiz_responses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  albumPreferences: text("album_preferences").notNull().default("[]"),
+  subGenres: text("sub_genres").notNull().default("{}"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  userIdx: uniqueIndex("quiz_responses_user_idx").on(t.userId),
 }));
 
 export const wishlistItems = sqliteTable("wishlist_items", {

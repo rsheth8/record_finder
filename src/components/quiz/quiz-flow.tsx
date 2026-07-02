@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -12,33 +12,47 @@ import {
   QUIZ_DECADES,
   QUIZ_MOODS,
   type AlbumPreference,
+  type QuizAlbumPreference,
   type QuizDecade,
   type QuizGenre,
   type QuizMood,
+  type QuizSubGenres,
 } from "@/lib/types";
+import { QUIZ_SUB_GENRES } from "@/lib/quiz/sub-genres";
+import {
+  battleToPreference,
+  pickAlbumBattles,
+  type AlbumBattlePair,
+} from "@/lib/quiz/album-battles";
 import { cn } from "@/lib/utils";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 import {
   Calendar,
   CheckCircle2,
+  Disc3,
   Headphones,
   Music2,
   Sparkles,
+  Swords,
   Waves,
 } from "lucide-react";
 
 const STEPS = [
   "genres",
+  "subGenres",
   "decades",
   "moods",
+  "albumBattles",
   "albumPreference",
   "deepCut",
 ] as const;
 
 const STEP_META = {
   genres: { icon: Music2, label: "Genres" },
+  subGenres: { icon: Disc3, label: "Sub-genres" },
   decades: { icon: Calendar, label: "Eras" },
   moods: { icon: Waves, label: "Moods" },
+  albumBattles: { icon: Swords, label: "Album picks" },
   albumPreference: { icon: Headphones, label: "Listening" },
   deepCut: { icon: Sparkles, label: "Discovery" },
 } as const;
@@ -87,30 +101,99 @@ function ToggleGrid<T extends string>({
   );
 }
 
-export function QuizFlow({ initial }: { initial?: {
-  genres: QuizGenre[];
-  decades: QuizDecade[];
-  moods: QuizMood[];
-  albumPreference: AlbumPreference;
-  deepCutLevel: number;
-} | null }) {
+function AlbumBattleCard({
+  pair,
+  selection,
+  onSelect,
+}: {
+  pair: AlbumBattlePair;
+  selection: "A" | "B" | null;
+  onSelect: (winner: "A" | "B") => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-xl border border-border p-4">
+      <p className="text-sm text-muted">Which would you rather own on vinyl?</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {(["A", "B"] as const).map((side) => {
+          const album = side === "A" ? pair.albumA : pair.albumB;
+          const active = selection === side;
+          return (
+            <button
+              key={side}
+              type="button"
+              onClick={() => onSelect(side)}
+              className={cn(
+                "rounded-xl border p-4 text-left transition-colors",
+                active
+                  ? "border-accent bg-accent-muted"
+                  : "border-border hover:border-accent/50",
+              )}
+            >
+              <div className="font-medium text-foreground">{album.title}</div>
+              <div className="text-sm text-muted">{album.artist}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function QuizFlow({
+  initial,
+}: {
+  initial?: {
+    genres: QuizGenre[];
+    decades: QuizDecade[];
+    moods: QuizMood[];
+    albumPreference: AlbumPreference;
+    deepCutLevel: number;
+    subGenres?: QuizSubGenres;
+    albumPreferences?: QuizAlbumPreference[];
+  } | null;
+}) {
   const router = useRouter();
   const [stepIndex, setStepIndex] = useState(0);
   const [genres, setGenres] = useState<QuizGenre[]>(initial?.genres ?? []);
+  const [subGenres, setSubGenres] = useState<QuizSubGenres>(initial?.subGenres ?? {});
   const [decades, setDecades] = useState<QuizDecade[]>(initial?.decades ?? []);
   const [moods, setMoods] = useState<QuizMood[]>(initial?.moods ?? []);
   const [albumPreference, setAlbumPreference] = useState<AlbumPreference>(
     initial?.albumPreference ?? "balanced",
   );
   const [deepCutLevel, setDeepCutLevel] = useState(initial?.deepCutLevel ?? 50);
+  const [battleSelections, setBattleSelections] = useState<
+    Record<string, "A" | "B">
+  >(() => {
+    const map: Record<string, "A" | "B"> = {};
+    for (const pref of initial?.albumPreferences ?? []) {
+      const match = pref.winnerAlbumId.match(/^battle:([^:]+):/);
+      if (match) {
+        map[match[1]] = pref.winnerAlbumId.endsWith(":A") ? "A" : "B";
+      }
+    }
+    return map;
+  });
   const [saving, setSaving] = useState(false);
   const [navigatingToDiscover, setNavigatingToDiscover] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const battles = useMemo(() => pickAlbumBattles(genres, 3), [genres]);
+
   const step = STEPS[stepIndex];
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
   const StepIcon = STEP_META[step].icon;
+
+  const albumPreferences = useMemo(
+    () =>
+      battles
+        .filter((pair) => battleSelections[pair.id])
+        .map((pair) =>
+          battleToPreference(pair, battleSelections[pair.id]!),
+        ),
+    [battles, battleSelections],
+  );
 
   async function save(completed: boolean): Promise<boolean> {
     setSaving(true);
@@ -126,6 +209,8 @@ export function QuizFlow({ initial }: { initial?: {
           moods,
           albumPreference,
           deepCutLevel,
+          subGenres,
+          albumPreferences,
           completed,
         }),
       });
@@ -220,6 +305,28 @@ export function QuizFlow({ initial }: { initial?: {
             </>
           )}
 
+          {step === "subGenres" && (
+            <>
+              <CardTitle>Drill into your genres</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                Pick up to 3 sub-genres per genre — this sharpens our algorithm.
+              </CardDescription>
+              <div className="space-y-6">
+                {(genres.length > 0 ? genres : (["Rock"] as QuizGenre[])).map((genre) => (
+                  <div key={genre}>
+                    <p className="mb-2 text-sm font-medium text-foreground">{genre}</p>
+                    <ToggleGrid
+                      options={QUIZ_SUB_GENRES[genre]}
+                      selected={subGenres[genre] ?? []}
+                      onChange={(next) => setSubGenres({ ...subGenres, [genre]: next })}
+                      max={3}
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
           {step === "decades" && (
             <>
               <CardTitle>Which eras speak to you?</CardTitle>
@@ -237,6 +344,27 @@ export function QuizFlow({ initial }: { initial?: {
                 Full albums hit different — pick the vibes you want on the turntable.
               </CardDescription>
               <ToggleGrid options={QUIZ_MOODS} selected={moods} onChange={setMoods} max={4} />
+            </>
+          )}
+
+          {step === "albumBattles" && (
+            <>
+              <CardTitle>Quick album picks</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                Choose the album you would rather spin — these teach us your taste fast.
+              </CardDescription>
+              <div className="space-y-4">
+                {battles.map((pair) => (
+                  <AlbumBattleCard
+                    key={pair.id}
+                    pair={pair}
+                    selection={battleSelections[pair.id] ?? null}
+                    onSelect={(winner) =>
+                      setBattleSelections({ ...battleSelections, [pair.id]: winner })
+                    }
+                  />
+                ))}
+              </div>
             </>
           )}
 

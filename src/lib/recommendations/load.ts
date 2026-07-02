@@ -4,21 +4,23 @@ import {
   getCachedRecommendations,
   cacheRecommendations,
   clearRecommendationCache,
-  saveSpotifySnapshot,
   getUserFeedback,
+  getWishlist,
+  getQuizResponses,
 } from "@/lib/db/queries";
 import { getTasteProfile } from "@/lib/taste-profile-store";
-import {
-  fetchDiscoveryAlbums,
-  fetchTopArtists,
-  deriveTopGenres,
-} from "@/lib/spotify/client";
+import { fetchDiscoveryAlbums } from "@/lib/spotify/client";
+import { syncSpotifyListening } from "@/lib/spotify/sync";
 import {
   scoreCandidates,
   getQuizOnlyRecommendations,
   mapQuizGenresToSpotify,
-  collectSimilarArtistNames,
+  collectSimilarArtistsWithMatch,
 } from "@/lib/recommendations/engine";
+import {
+  artistsFromIds,
+  getTopWeightedGenres,
+} from "@/lib/taste/derive-profile";
 import { toSourceError, type SourceError } from "@/lib/errors";
 import { enrichRecommendations } from "@/lib/recommendations/enrich";
 import type { Recommendation } from "@/lib/types";
@@ -62,8 +64,10 @@ export async function loadRecommendations(
 
   try {
     const session = await auth();
-    const snapshot = await getSpotifySnapshot(userId);
+    let snapshot = await getSpotifySnapshot(userId);
     const feedback = await getUserFeedback(userId);
+    const wishlist = await getWishlist(userId);
+    const quizResponses = await getQuizResponses(userId);
     const excludedIds = new Set(
       feedback
         .filter((f) => f.signal === "hide" || f.signal === "own")
@@ -81,37 +85,63 @@ export async function loadRecommendations(
     }
 
     if (session?.accessToken && session.error !== "RefreshAccessTokenError") {
-      let topArtists = snapshot?.topArtists ?? [];
+      const topArtists = snapshot?.topArtists.medium ?? [];
       let topGenres = snapshot?.topGenres ?? [];
 
       try {
-        // Refresh listening history when missing or stale, so recommendations
-        // don't freeze on a snapshot taken months ago.
         const snapshotStale =
           !snapshot ||
-          snapshot.topArtists.length === 0 ||
+          topArtists.length === 0 ||
           Date.now() - snapshot.fetchedAt.getTime() > SNAPSHOT_TTL_MS;
 
         if (snapshotStale) {
-          topArtists = await fetchTopArtists(session.accessToken);
-          topGenres = deriveTopGenres(topArtists);
-          await saveSpotifySnapshot(userId, {
-            topArtists,
-            topAlbums: snapshot?.topAlbums ?? [],
-            topGenres,
-          });
+          const synced = await syncSpotifyListening(userId, session.accessToken);
+          snapshot = {
+            ...synced,
+            tasteVector: synced.tasteVector,
+          };
+          topGenres = synced.topGenres;
         }
 
-        // Computed once and shared: seeds new-to-you discovery candidates and
-        // powers the similar-artist scoring bonus (avoids duplicate Last.fm hits).
-        const similarArtistNames = await collectSimilarArtistNames(topArtists);
+        const tasteVector = snapshot?.tasteVector ?? null;
+        const allArtists = [
+          ...(snapshot?.topArtists.short ?? []),
+          ...(snapshot?.topArtists.medium ?? []),
+          ...(snapshot?.topArtists.long ?? []),
+        ];
+
+        const similarArtists = await collectSimilarArtistsWithMatch(
+          snapshot?.topArtists.medium ?? [],
+        );
+
+        const tasteGenres = tasteVector
+          ? getTopWeightedGenres(tasteVector, 5)
+          : [];
+        const quizGenres = mapQuizGenresToSpotify(profile.genres);
+        const seedGenres = tasteGenres.length > 0 ? tasteGenres : quizGenres;
+
+        const savedAlbumArtists = artistsFromIds(
+          [...new Set((snapshot?.savedAlbums ?? []).map((a) => a.artistId))],
+          allArtists,
+        );
+        const trendingArtists = artistsFromIds(
+          tasteVector?.trendingArtistIds ?? [],
+          allArtists,
+        );
+        const coreArtists = artistsFromIds(
+          tasteVector?.coreArtistIds ?? [],
+          allArtists,
+        );
 
         const candidates = await fetchDiscoveryAlbums(
           session.accessToken,
           {
-            artists: topArtists.slice(0, 3),
-            genres: mapQuizGenresToSpotify(profile.genres),
-            similarArtists: similarArtistNames,
+            artists: snapshot?.topArtists.medium.slice(0, 3) ?? [],
+            genres: seedGenres,
+            similarArtists: similarArtists.map((a) => a.name),
+            savedAlbumArtists,
+            trendingArtists,
+            coreArtists,
           },
           30,
         );
@@ -120,10 +150,18 @@ export async function loadRecommendations(
           recommendations = await scoreCandidates(
             candidates,
             profile,
-            topArtists,
+            snapshot?.topArtists.medium ?? [],
             topGenres,
-            similarArtistNames,
+            similarArtists,
             feedback,
+            {
+              tasteVector,
+              snapshot,
+              wishlist,
+              similarArtists,
+              quizAlbumPreferences: quizResponses?.albumPreferences ?? [],
+              quizSubGenres: Object.values(quizResponses?.subGenres ?? {}).flat(),
+            },
           );
         } else {
           degraded.push(
@@ -142,8 +180,6 @@ export async function loadRecommendations(
       recommendations = await getQuizOnlyRecommendations(profile);
     }
 
-    // Drop anything the user marked as owned or hidden (covers both the
-    // Spotify-scored and quiz-only paths).
     if (excludedIds.size > 0) {
       recommendations = recommendations.filter(
         (r) => !excludedIds.has(r.discogsReleaseId),

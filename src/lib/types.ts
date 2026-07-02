@@ -71,6 +71,61 @@ export interface SpotifyAlbum {
   spotifyUrl: string;
 }
 
+export interface SpotifyTrack {
+  id: string;
+  name: string;
+  artist: string;
+  artistId: string;
+  albumId: string;
+  albumName: string;
+  spotifyUrl: string;
+}
+
+export type SpotifyTimeRange = "short_term" | "medium_term" | "long_term";
+
+export interface SpotifyTopByTerm<T> {
+  short: T[];
+  medium: T[];
+  long: T[];
+}
+
+export interface SpotifyRecentlyPlayed {
+  track: SpotifyTrack;
+  playedAt: string;
+}
+
+export interface SpotifyListeningSnapshot {
+  topArtists: SpotifyTopByTerm<SpotifyArtist>;
+  topTracks: SpotifyTopByTerm<SpotifyTrack>;
+  savedAlbums: SpotifyAlbum[];
+  savedTracks: SpotifyTrack[];
+  recentlyPlayed: SpotifyRecentlyPlayed[];
+  topGenres: string[];
+  fetchedAt: Date;
+}
+
+export interface TasteVector {
+  artistWeights: Record<string, number>;
+  albumWeights: Record<string, number>;
+  genreWeights: Record<string, number>;
+  coreArtistIds: string[];
+  trendingArtistIds: string[];
+  derivedAt: string;
+}
+
+/** Pairwise album preference from intensive quiz (A vs B battles). */
+export interface QuizAlbumPreference {
+  winnerAlbumId: string;
+  loserAlbumId: string;
+  winnerTitle: string;
+  loserTitle: string;
+  winnerArtist?: string;
+  loserArtist?: string;
+}
+
+/** Sub-genre selections keyed by parent quiz genre. */
+export type QuizSubGenres = Partial<Record<QuizGenre, string[]>>;
+
 export interface RecommendationMarketplace {
   lowestPrice: number | null;
   currency: string;

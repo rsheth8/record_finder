@@ -1,4 +1,12 @@
-import type { SpotifyAlbum, SpotifyArtist } from "@/lib/types";
+import type {
+  SpotifyAlbum,
+  SpotifyArtist,
+  SpotifyListeningSnapshot,
+  SpotifyRecentlyPlayed,
+  SpotifyTimeRange,
+  SpotifyTopByTerm,
+  SpotifyTrack,
+} from "@/lib/types";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
@@ -12,6 +20,14 @@ type SpotifyAlbumPayload = {
   album_type?: string;
 };
 
+type SpotifyTrackPayload = {
+  id: string;
+  name: string;
+  external_urls: { spotify: string };
+  artists: { id: string; name: string }[];
+  album: SpotifyAlbumPayload;
+};
+
 function mapSpotifyAlbum(album: SpotifyAlbumPayload): SpotifyAlbum {
   return {
     id: album.id,
@@ -21,6 +37,18 @@ function mapSpotifyAlbum(album: SpotifyAlbumPayload): SpotifyAlbum {
     releaseDate: album.release_date,
     imageUrl: album.images[0]?.url ?? null,
     spotifyUrl: album.external_urls.spotify,
+  };
+}
+
+function mapSpotifyTrack(track: SpotifyTrackPayload): SpotifyTrack {
+  return {
+    id: track.id,
+    name: track.name,
+    artist: track.artists[0]?.name ?? "Unknown",
+    artistId: track.artists[0]?.id ?? "",
+    albumId: track.album.id,
+    albumName: track.album.name,
+    spotifyUrl: track.external_urls.spotify,
   };
 }
 
@@ -38,9 +66,34 @@ async function spotifyFetch<T>(path: string, accessToken: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function spotifyPaginate<T>(
+  path: string,
+  accessToken: string,
+  extract: (data: Record<string, unknown>) => T[],
+  maxPages = 3,
+): Promise<T[]> {
+  const results: T[] = [];
+  let nextUrl: string | null = `${SPOTIFY_API}${path}`;
+
+  for (let page = 0; page < maxPages && nextUrl; page++) {
+    const res = await fetch(nextUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) break;
+
+    const data = (await res.json()) as Record<string, unknown>;
+    results.push(...extract(data));
+    nextUrl = (data.next as string | null) ?? null;
+  }
+
+  return results;
+}
+
 export async function fetchTopArtists(
   accessToken: string,
   limit = 20,
+  timeRange: SpotifyTimeRange = "medium_term",
 ): Promise<SpotifyArtist[]> {
   const data = await spotifyFetch<{
     items: {
@@ -49,7 +102,7 @@ export async function fetchTopArtists(
       genres: string[];
       popularity: number;
     }[];
-  }>(`/me/top/artists?limit=${limit}&time_range=medium_term`, accessToken);
+  }>(`/me/top/artists?limit=${limit}&time_range=${timeRange}`, accessToken);
 
   return data.items.map((a) => ({
     id: a.id,
@@ -59,26 +112,145 @@ export async function fetchTopArtists(
   }));
 }
 
+export async function fetchTopArtistsByTerm(
+  accessToken: string,
+  limit = 20,
+): Promise<SpotifyTopByTerm<SpotifyArtist>> {
+  const [short, medium, long] = await Promise.all([
+    fetchTopArtists(accessToken, limit, "short_term"),
+    fetchTopArtists(accessToken, limit, "medium_term"),
+    fetchTopArtists(accessToken, limit, "long_term"),
+  ]);
+  return { short, medium, long };
+}
+
+export async function fetchTopTracks(
+  accessToken: string,
+  limit = 50,
+  timeRange: SpotifyTimeRange = "medium_term",
+): Promise<SpotifyTrack[]> {
+  const data = await spotifyFetch<{ items: SpotifyTrackPayload[] }>(
+    `/me/top/tracks?limit=${limit}&time_range=${timeRange}`,
+    accessToken,
+  );
+
+  return data.items.map(mapSpotifyTrack);
+}
+
+export async function fetchTopTracksByTerm(
+  accessToken: string,
+  limit = 50,
+): Promise<SpotifyTopByTerm<SpotifyTrack>> {
+  const [short, medium, long] = await Promise.all([
+    fetchTopTracks(accessToken, limit, "short_term"),
+    fetchTopTracks(accessToken, limit, "medium_term"),
+    fetchTopTracks(accessToken, limit, "long_term"),
+  ]);
+  return { short, medium, long };
+}
+
 export async function fetchTopAlbums(
   accessToken: string,
   limit = 20,
 ): Promise<SpotifyAlbum[]> {
-  const tracksData = await spotifyFetch<{
-    items: { album: SpotifyAlbumPayload }[];
-  }>(`/me/top/tracks?limit=50&time_range=medium_term`, accessToken);
+  const tracks = await fetchTopTracks(accessToken, 50, "medium_term");
 
   const seen = new Set<string>();
   const albums: SpotifyAlbum[] = [];
 
-  for (const item of tracksData.items) {
-    const album = item.album;
-    if (seen.has(album.id)) continue;
-    seen.add(album.id);
-    albums.push(mapSpotifyAlbum(album));
+  for (const track of tracks) {
+    if (seen.has(track.albumId)) continue;
+    seen.add(track.albumId);
+    albums.push({
+      id: track.albumId,
+      name: track.albumName,
+      artist: track.artist,
+      artistId: track.artistId,
+      releaseDate: "",
+      imageUrl: null,
+      spotifyUrl: track.spotifyUrl.replace(/\/track\//, "/album/"),
+    });
     if (albums.length >= limit) break;
   }
 
   return albums;
+}
+
+export async function fetchRecentlyPlayed(
+  accessToken: string,
+  limit = 50,
+): Promise<SpotifyRecentlyPlayed[]> {
+  const data = await spotifyFetch<{
+    items: { track: SpotifyTrackPayload; played_at: string }[];
+  }>(`/me/player/recently-played?limit=${limit}`, accessToken);
+
+  return data.items.map((item) => ({
+    track: mapSpotifyTrack(item.track),
+    playedAt: item.played_at,
+  }));
+}
+
+export async function fetchSavedAlbums(
+  accessToken: string,
+  maxItems = 100,
+): Promise<SpotifyAlbum[]> {
+  const items = await spotifyPaginate(
+    `/me/albums?limit=50`,
+    accessToken,
+    (data) => (data.items as { album: SpotifyAlbumPayload }[]) ?? [],
+    Math.ceil(maxItems / 50),
+  );
+
+  return items
+    .map((item) => item.album)
+    .filter((album) => album.album_type !== "single")
+    .slice(0, maxItems)
+    .map(mapSpotifyAlbum);
+}
+
+export async function fetchSavedTracks(
+  accessToken: string,
+  maxItems = 100,
+): Promise<SpotifyTrack[]> {
+  const items = await spotifyPaginate(
+    `/me/tracks?limit=50`,
+    accessToken,
+    (data) => (data.items as { track: SpotifyTrackPayload }[]) ?? [],
+    Math.ceil(maxItems / 50),
+  );
+
+  return items.map((item) => mapSpotifyTrack(item.track)).slice(0, maxItems);
+}
+
+/** Fetches all listening signals and assembles a full snapshot. */
+export async function fetchFullListeningSnapshot(
+  accessToken: string,
+): Promise<SpotifyListeningSnapshot> {
+  const [
+    topArtists,
+    topTracks,
+    savedAlbums,
+    savedTracks,
+    recentlyPlayed,
+  ] = await Promise.all([
+    fetchTopArtistsByTerm(accessToken),
+    fetchTopTracksByTerm(accessToken),
+    fetchSavedAlbums(accessToken),
+    fetchSavedTracks(accessToken),
+    fetchRecentlyPlayed(accessToken),
+  ]);
+
+  const topGenres = deriveTopGenres(topArtists.medium);
+
+  return {
+    topArtists,
+    topTracks,
+    savedAlbums,
+    savedTracks,
+    recentlyPlayed,
+    topGenres,
+    fetchedAt: new Date(),
+  };
 }
 
 export function deriveTopGenres(artists: SpotifyArtist[]): string[] {
@@ -139,24 +311,26 @@ async function searchAlbumsByArtist(
     .map(mapSpotifyAlbum);
 }
 
+export interface DiscoverySeeds {
+  artists?: SpotifyArtist[];
+  genres?: string[];
+  similarArtists?: string[];
+  savedAlbumArtists?: SpotifyArtist[];
+  trendingArtists?: SpotifyArtist[];
+  coreArtists?: SpotifyArtist[];
+}
+
 /** Spotify removed /recommendations for new apps — use artist albums + search
- * instead. The pool is deliberately balanced so it's not just "more of what you
- * already play": familiar (own top artists) is capped to a minority, and a chunk
- * is reserved for Last.fm similar artists the user does not already listen to. */
+ * instead. Seeds from saved albums, trending artists, and core artists improve
+ * accuracy beyond generic genre search. */
 export async function fetchDiscoveryAlbums(
   accessToken: string,
-  seeds: {
-    artists?: SpotifyArtist[];
-    genres?: string[];
-    similarArtists?: string[];
-  },
+  seeds: DiscoverySeeds,
   limit = 30,
 ): Promise<SpotifyAlbum[]> {
   const seen = new Set<string>();
   const albums: SpotifyAlbum[] = [];
 
-  /** Adds up to `cap` new albums from `next` (unbounded when `cap` is omitted),
-   * always respecting the overall `limit`. */
   function add(next: SpotifyAlbum[], cap?: number) {
     let added = 0;
     for (const album of next) {
@@ -169,24 +343,52 @@ export async function fetchDiscoveryAlbums(
     }
   }
 
-  // Familiar: albums from the user's own top artists, capped to a minority.
-  const ownCap = Math.ceil(limit * 0.4);
+  // Saved albums' artists — high-confidence familiar picks.
+  for (const artist of seeds.savedAlbumArtists?.slice(0, 3) ?? []) {
+    if (albums.length >= limit) break;
+    try {
+      add(await fetchArtistAlbums(accessToken, artist.id, 6), 2);
+    } catch {
+      // continue
+    }
+  }
+
+  // Trending artists — what they're into right now.
+  for (const artist of seeds.trendingArtists?.slice(0, 3) ?? []) {
+    if (albums.length >= limit) break;
+    try {
+      add(await fetchArtistAlbums(accessToken, artist.id, 6), 2);
+    } catch {
+      // continue
+    }
+  }
+
+  // Core artists — deep catalog discovery from long-term favorites.
+  for (const artist of seeds.coreArtists?.slice(0, 3) ?? []) {
+    if (albums.length >= limit) break;
+    try {
+      add(await fetchArtistAlbums(accessToken, artist.id, 8), 3);
+    } catch {
+      // continue
+    }
+  }
+
+  const ownCap = Math.ceil(limit * 0.3);
   for (const artist of seeds.artists?.slice(0, 3) ?? []) {
     if (albums.length >= ownCap) break;
     try {
       add(await fetchArtistAlbums(accessToken, artist.id, 6), ownCap - albums.length);
     } catch {
-      // Artist albums unavailable — continue with other sources.
+      // continue
     }
   }
 
-  // Discovery: albums from Last.fm similar artists (new-to-you artists).
   for (const name of seeds.similarArtists?.slice(0, 8) ?? []) {
     if (albums.length >= limit) break;
     try {
       add(await searchAlbumsByArtist(accessToken, name, 3), 2);
     } catch {
-      // Artist search failed — try the next similar artist.
+      // continue
     }
   }
 
@@ -194,7 +396,7 @@ export async function fetchDiscoveryAlbums(
     try {
       add(await fetchTopAlbums(accessToken, 15));
     } catch {
-      // Top tracks unavailable — continue with genre search.
+      // continue
     }
   }
 
@@ -203,7 +405,7 @@ export async function fetchDiscoveryAlbums(
     try {
       add(await searchAlbumsByGenre(accessToken, genre, 10));
     } catch {
-      // Genre search failed — try next genre.
+      // continue
     }
   }
 

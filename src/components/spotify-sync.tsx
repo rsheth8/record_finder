@@ -5,9 +5,16 @@ import { useSession } from "next-auth/react";
 import { CheckCircle2 } from "lucide-react";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 
+type SyncStats = {
+  savedAlbums: number;
+  savedTracks: number;
+  recentlyPlayed: number;
+};
+
 export function SpotifySync() {
   const { data: session, status } = useSession();
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "done" | "error">("idle");
+  const [stats, setStats] = useState<SyncStats | null>(null);
 
   useEffect(() => {
     if (status !== "authenticated" || !session) return;
@@ -17,9 +24,15 @@ export function SpotifySync() {
     async function sync() {
       setSyncState("syncing");
       try {
-        const res = await fetch("/api/spotify/top");
+        const res = await fetch("/api/spotify/top", { method: "POST" });
         if (!cancelled) {
-          setSyncState(res.ok ? "done" : "error");
+          if (res.ok) {
+            const data = await res.json();
+            setStats(data.stats ?? null);
+            setSyncState("done");
+          } else {
+            setSyncState("error");
+          }
         }
       } catch {
         if (!cancelled) setSyncState("error");
@@ -39,10 +52,16 @@ export function SpotifySync() {
   }
 
   if (syncState === "done") {
+    const detail =
+      stats &&
+      (stats.savedAlbums > 0 || stats.recentlyPlayed > 0)
+        ? `Analyzed ${stats.savedAlbums} saved albums, ${stats.recentlyPlayed} recent plays.`
+        : "Spotify taste profile synced.";
+
     return (
       <p className="flex items-center gap-2 text-sm text-success">
         <CheckCircle2 className="h-4 w-4" />
-        Spotify taste profile synced.
+        {detail}
       </p>
     );
   }

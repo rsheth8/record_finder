@@ -7,13 +7,18 @@ import type {
   SpotifyAlbum,
   SpotifyArtist,
   TasteProfileData,
+  TasteVector,
+  QuizAlbumPreference,
+  WishlistItem,
 } from "@/lib/types";
 import { browseByGenreDecade, searchVinylRelease } from "@/lib/discogs/client";
 import { getArtistTags, getCoverArt, searchReleaseGroup } from "@/lib/musicbrainz/client";
 import { getSimilarArtists, isLastfmConfigured } from "@/lib/lastfm/client";
+import type { SimilarArtist } from "@/lib/lastfm/client";
 import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
 import { mapWithConcurrency } from "@/lib/utils/rate-limited-pool";
 import { isFullAlbum } from "@/lib/recommendations/match";
+import type { StoredSpotifySnapshot } from "@/lib/db/queries";
 
 /** Quiz moods map to genre/tag hints (from MusicBrainz/Last.fm) so a mood
  * preference can nudge scoring toward records that actually carry that vibe. */
@@ -28,8 +33,33 @@ const MOOD_TAG_HINTS: Record<QuizMood, string[]> = {
   Raw: ["lo-fi", "lofi", "raw", "garage"],
 };
 
-/** A pressing is treated as "well-known" once enough Discogs collectors want it. */
 const POPULAR_WANT_THRESHOLD = 500;
+const RECENCY_DECAY_DAYS = 7;
+
+function albumMatchesPreference(
+  album: SpotifyAlbum,
+  pref: QuizAlbumPreference,
+  side: "winner" | "loser",
+): boolean {
+  const title = side === "winner" ? pref.winnerTitle : pref.loserTitle;
+  const artist = side === "winner" ? pref.winnerArtist : pref.loserArtist;
+  const titleMatch =
+    album.name.toLowerCase().includes(title.toLowerCase()) ||
+    title.toLowerCase().includes(album.name.toLowerCase());
+  if (!artist) return titleMatch;
+  return (
+    titleMatch &&
+    album.artist.toLowerCase().includes(artist.toLowerCase())
+  );
+}
+export interface TasteContext {
+  tasteVector?: TasteVector | null;
+  snapshot?: StoredSpotifySnapshot | null;
+  wishlist?: WishlistItem[];
+  similarArtists?: SimilarArtist[];
+  quizAlbumPreferences?: QuizAlbumPreference[];
+  quizSubGenres?: string[];
+}
 
 function moodOverlap(albumGenres: string[], moods: QuizMood[]): number {
   if (moods.length === 0) return 0;
@@ -92,11 +122,55 @@ function buildReasons(
   rec: Recommendation,
   profile: TasteProfileData,
   matchedArtist: SpotifyArtist | null,
+  album: SpotifyAlbum,
+  context: TasteContext,
 ): string[] {
   const reasons: string[] = [];
+  const { tasteVector, snapshot } = context;
+  const artistKey = album.artist.toLowerCase();
 
-  if (matchedArtist) {
+  if (tasteVector && album.artistId && tasteVector.artistWeights[album.artistId] >= 0.7) {
+    reasons.push(`Related to your top artist ${album.artist}`);
+  } else if (matchedArtist) {
     reasons.push(`Related to your top artist ${matchedArtist.name}`);
+  }
+
+  const savedAlbum = snapshot?.savedAlbums.find((a) => a.id === album.id);
+  if (savedAlbum) {
+    reasons.push("In your saved albums");
+  } else if (
+    snapshot?.savedAlbums.some(
+      (a) => a.artistId === album.artistId || a.artist.toLowerCase() === artistKey,
+    )
+  ) {
+    const similar = snapshot.savedAlbums.find(
+      (a) => a.artistId === album.artistId || a.artist.toLowerCase() === artistKey,
+    );
+    if (similar) {
+      reasons.push(`Similar to ${similar.name} in your library`);
+    }
+  }
+
+  const recentPlay = snapshot?.recentlyPlayed.find(
+    (r) =>
+      r.track.albumId === album.id ||
+      r.track.artistId === album.artistId ||
+      r.track.artist.toLowerCase() === artistKey,
+  );
+  if (recentPlay) {
+    const daysAgo =
+      (Date.now() - new Date(recentPlay.playedAt).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysAgo <= RECENCY_DECAY_DAYS) {
+      reasons.push(`You've been playing a lot of ${album.artist} lately`);
+    }
+  }
+
+  if (
+    tasteVector?.coreArtistIds.includes(album.artistId) &&
+    rec.wantCount !== null &&
+    rec.wantCount < POPULAR_WANT_THRESHOLD
+  ) {
+    reasons.push(`Deep cut from an artist you love long-term`);
   }
 
   const matchedDecade = profile.decades.find((d) => {
@@ -152,6 +226,14 @@ export async function collectSimilarArtistNames(
   topArtists: SpotifyArtist[],
   perArtist = 15,
 ): Promise<string[]> {
+  const withMatch = await collectSimilarArtistsWithMatch(topArtists, perArtist);
+  return withMatch.map((a) => a.name);
+}
+
+export async function collectSimilarArtistsWithMatch(
+  topArtists: SpotifyArtist[],
+  perArtist = 15,
+): Promise<SimilarArtist[]> {
   if (!isLastfmConfigured || topArtists.length === 0) return [];
 
   const lists = await mapWithConcurrency(
@@ -166,17 +248,17 @@ export async function collectSimilarArtistNames(
     },
   );
 
-  const names: string[] = [];
-  const seen = new Set<string>();
+  const byName = new Map<string, SimilarArtist>();
   for (const list of lists) {
     for (const similar of list) {
       const key = similar.name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      names.push(similar.name);
+      const existing = byName.get(key);
+      if (!existing || similar.match > existing.match) {
+        byName.set(key, similar);
+      }
     }
   }
-  return names;
+  return [...byName.values()];
 }
 
 /** Enriches a Discogs match with MusicBrainz genre tags and a cover-art fallback
@@ -210,13 +292,20 @@ export async function scoreCandidates(
   profile: TasteProfileData,
   topArtists: SpotifyArtist[],
   topGenres: string[],
-  similarArtistNames?: string[],
+  similarArtists: SimilarArtist[] = [],
   feedback: FeedbackEntry[] = [],
+  context: TasteContext = {},
 ): Promise<Recommendation[]> {
-  const names = similarArtistNames ?? (await collectSimilarArtistNames(topArtists));
-  const similarArtists = new Set(names.map((n) => n.toLowerCase()));
+  const similarByName = new Map(
+    similarArtists.map((a) => [a.name.toLowerCase(), a.match]),
+  );
+  const { tasteVector, snapshot, wishlist = [], quizAlbumPreferences = [], quizSubGenres = [] } = context;
 
-  // Learned preferences: reward artists the user liked, penalize disliked ones.
+  const wishlistArtists = new Set(
+    wishlist.map((w) => w.artist.toLowerCase()),
+  );
+  const wishlistReleaseIds = new Set(wishlist.map((w) => w.discogsReleaseId));
+
   const likedArtists = new Set(
     feedback.filter((f) => f.signal === "like").map((f) => f.artist.toLowerCase()),
   );
@@ -224,16 +313,14 @@ export async function scoreCandidates(
     feedback.filter((f) => f.signal === "dislike").map((f) => f.artist.toLowerCase()),
   );
 
-  // Discogs lookups stay serialized behind its own rate limiter (its real
-  // constraint), but concurrency here lets MusicBrainz/Last.fm/Apple Music
-  // enrichment for candidate N overlap with the Discogs lookup for candidate
-  // N+1, instead of blocking the whole loop on a fixed per-item sleep.
   const scored = await mapWithConcurrency(
     candidates.slice(0, 25),
     4,
     async (album) => {
       const vinyl = await searchVinylRelease(album.artist, album.name);
       if (!vinyl) return null;
+
+      if (wishlistReleaseIds.has(vinyl.discogsReleaseId)) return null;
 
       const enriched = await enrichCandidate(vinyl);
 
@@ -245,21 +332,73 @@ export async function scoreCandidates(
 
       let score = 0;
       score += genreOverlap(enriched.genres, profile.genres, topGenres) * 10;
-      if (decadeMatches(enriched.year, profile.decades)) score += 15;
-      if (matchedArtist) score += 20;
-      if (similarArtists.has(album.artist.toLowerCase())) score += 8;
 
-      // Mood match (from the quiz) against enriched genre/tags.
+      if (quizSubGenres.length > 0) {
+        const subMatches = quizSubGenres.filter((sg) =>
+          enriched.genres.some(
+            (g) =>
+              g.toLowerCase().includes(sg.toLowerCase()) ||
+              sg.toLowerCase().includes(g.toLowerCase()),
+          ),
+        ).length;
+        score += subMatches * 8;
+      }
+
+      if (decadeMatches(enriched.year, profile.decades)) score += 15;
+
+      const artistAffinity =
+        tasteVector?.artistWeights[album.artistId] ??
+        (matchedArtist ? 0.65 : 0);
+      if (artistAffinity > 0) {
+        score += Math.round(artistAffinity * 30);
+      }
+
+      const albumAffinity = tasteVector?.albumWeights[album.id] ?? 0;
+      if (albumAffinity > 0) {
+        score += Math.round(albumAffinity * 25);
+      }
+
+      const similarMatch = similarByName.get(album.artist.toLowerCase());
+      if (similarMatch !== undefined) {
+        score += Math.round((similarMatch / 100) * 12);
+      }
+
+      const isSavedAlbum = snapshot?.savedAlbums.some((a) => a.id === album.id);
+      if (isSavedAlbum) {
+        score += 20;
+      } else if (
+        snapshot?.savedAlbums.some(
+          (a) =>
+            a.artistId === album.artistId ||
+            a.artist.toLowerCase() === album.artist.toLowerCase(),
+        )
+      ) {
+        score += 10;
+      }
+
+      const recentPlay = snapshot?.recentlyPlayed.find(
+        (r) =>
+          r.track.albumId === album.id ||
+          r.track.artistId === album.artistId,
+      );
+      if (recentPlay) {
+        const daysAgo =
+          (Date.now() - new Date(recentPlay.playedAt).getTime()) /
+          (1000 * 60 * 60 * 24);
+        if (daysAgo <= RECENCY_DECAY_DAYS) {
+          const decay = 1 - daysAgo / RECENCY_DECAY_DAYS;
+          score += Math.round(decay * 12);
+        }
+      }
+
       score += moodOverlap(enriched.genres, profile.moods) * 6;
 
-      // Album-format preference: honor "full albums front to back".
       if (profile.albumPreference === "full_albums" && !isFullAlbum(enriched.formats)) {
         score -= 12;
       } else if (profile.albumPreference === "singles" && isFullAlbum(enriched.formats)) {
         score -= 4;
       }
 
-      // Deep-cut slider, driven by Discogs desirability rather than a flat nudge.
       const popular =
         enriched.wantCount !== null && enriched.wantCount >= POPULAR_WANT_THRESHOLD;
       if (profile.deepCutLevel < 40) {
@@ -268,21 +407,36 @@ export async function scoreCandidates(
         score += popular ? -8 : 6;
       }
 
-      // Community rating, once populated (album detail / async enrichment), rewards
-      // well-regarded pressings. Inert on the search-only path where it stays null.
       if (enriched.communityRating !== null && (enriched.ratingCount ?? 0) >= 5) {
         score += enriched.communityRating * 3;
       }
 
-      // Learned feedback: nudge toward liked artists, away from disliked ones.
       const artistKey = album.artist.toLowerCase();
       if (likedArtists.has(artistKey)) score += 15;
       if (dislikedArtists.has(artistKey)) score -= 25;
+      if (wishlistArtists.has(artistKey)) score += 15;
+
+      for (const pref of quizAlbumPreferences) {
+        if (albumMatchesPreference(album, pref, "winner")) {
+          score += 18;
+          break;
+        }
+        if (albumMatchesPreference(album, pref, "loser")) {
+          score -= 8;
+          break;
+        }
+      }
 
       enriched.spotifyAlbumId = album.id;
       enriched.spotifyUrl = album.spotifyUrl;
       enriched.score = score;
-      enriched.reasons = buildReasons(enriched, profile, matchedArtist ?? null);
+      enriched.reasons = buildReasons(
+        enriched,
+        profile,
+        matchedArtist ?? null,
+        album,
+        context,
+      );
 
       return { enriched, artist: album.artist };
     },
@@ -314,7 +468,15 @@ export async function getQuizOnlyRecommendations(
   return results.map((r, i) => ({
     ...r,
     score: 50 - i,
-    reasons: buildReasons(r, profile, null),
+    reasons: buildReasons(r, profile, null, {
+      id: "",
+      name: r.title,
+      artist: r.artist,
+      artistId: "",
+      releaseDate: "",
+      imageUrl: r.coverUrl,
+      spotifyUrl: "",
+    }, {}),
   }));
 }
 

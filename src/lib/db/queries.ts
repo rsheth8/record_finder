@@ -8,13 +8,20 @@ import {
   users,
   creditLedger,
   orders,
+  quizResponses,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
+import { normalizeRecommendations } from "@/lib/recommendations/normalize";
 import type {
   TasteProfileData,
   SpotifyArtist,
   SpotifyAlbum,
+  SpotifyTrack,
+  SpotifyListeningSnapshot,
+  SpotifyRecentlyPlayed,
+  SpotifyTopByTerm,
+  TasteVector,
   WishlistItem,
   Recommendation,
   AlbumPreference,
@@ -23,6 +30,8 @@ import type {
   QuizMood,
   FeedbackEntry,
   FeedbackSignal,
+  QuizAlbumPreference,
+  QuizSubGenres,
 } from "@/lib/types";
 
 export async function getTasteProfileFromDb(
@@ -75,12 +84,19 @@ export async function saveTasteProfileToDb(
     .onConflictDoUpdate({ target: tasteProfile.userId, set: values });
 }
 
-export async function getSpotifySnapshot(userId: string): Promise<{
-  topArtists: SpotifyArtist[];
-  topAlbums: SpotifyAlbum[];
-  topGenres: string[];
-  fetchedAt: Date;
-} | null> {
+export type StoredSpotifySnapshot = SpotifyListeningSnapshot & {
+  tasteVector: TasteVector | null;
+};
+
+const EMPTY_TOP_BY_TERM = <T,>(): SpotifyTopByTerm<T> => ({
+  short: [],
+  medium: [],
+  long: [],
+});
+
+export async function getSpotifySnapshot(
+  userId: string,
+): Promise<StoredSpotifySnapshot | null> {
   await ensureDb();
   const row = await db
     .select()
@@ -89,34 +105,125 @@ export async function getSpotifySnapshot(userId: string): Promise<{
     .get();
   if (!row) return null;
 
+  const topArtistsByTermParsed = parseJson<SpotifyTopByTerm<SpotifyArtist>>(
+    row.topArtistsByTerm,
+    EMPTY_TOP_BY_TERM(),
+  );
+  const topTracksByTerm = parseJson<SpotifyTopByTerm<SpotifyTrack>>(
+    row.topTracksByTerm,
+    EMPTY_TOP_BY_TERM(),
+  );
+  const tasteVectorRaw = parseJson<TasteVector | Record<string, never>>(
+    row.tasteVector,
+    {},
+  );
+  const tasteVector: TasteVector | null =
+    tasteVectorRaw && "derivedAt" in tasteVectorRaw
+      ? (tasteVectorRaw as TasteVector)
+      : null;
+
+  const legacyTopArtists = parseJson<SpotifyArtist[]>(row.topArtists, []);
+  const topArtistsByTerm =
+    topArtistsByTermParsed.medium.length > 0
+      ? topArtistsByTermParsed
+      : {
+          short: legacyTopArtists,
+          medium: legacyTopArtists,
+          long: legacyTopArtists,
+        };
+
   return {
-    topArtists: parseJson<SpotifyArtist[]>(row.topArtists, []),
-    topAlbums: parseJson<SpotifyAlbum[]>(row.topAlbums, []),
+    topArtists: topArtistsByTerm,
+    topTracks: topTracksByTerm,
+    savedAlbums: parseJson<SpotifyAlbum[]>(row.savedAlbums, []),
+    savedTracks: parseJson<SpotifyTrack[]>(row.savedTracks, []),
+    recentlyPlayed: parseJson<SpotifyRecentlyPlayed[]>(row.recentlyPlayed, []),
     topGenres: parseJson<string[]>(row.topGenres, []),
+    tasteVector,
     fetchedAt: row.fetchedAt,
   };
 }
 
 export async function saveSpotifySnapshot(
   userId: string,
-  data: {
-    topArtists: SpotifyArtist[];
-    topAlbums: SpotifyAlbum[];
-    topGenres: string[];
-  },
+  data: SpotifyListeningSnapshot & { tasteVector?: TasteVector | null },
 ) {
   await ensureDb();
+  const topArtistsMedium = data.topArtists.medium;
+  const topAlbumsFromTracks = deriveTopAlbumsFromTracks(data.topTracks.medium);
+
   const values = {
     userId,
-    topArtists: JSON.stringify(data.topArtists),
-    topAlbums: JSON.stringify(data.topAlbums),
+    topArtists: JSON.stringify(topArtistsMedium),
+    topAlbums: JSON.stringify(topAlbumsFromTracks),
     topGenres: JSON.stringify(data.topGenres),
-    fetchedAt: new Date(),
+    topArtistsByTerm: JSON.stringify(data.topArtists),
+    topTracksByTerm: JSON.stringify(data.topTracks),
+    savedAlbums: JSON.stringify(data.savedAlbums),
+    savedTracks: JSON.stringify(data.savedTracks),
+    recentlyPlayed: JSON.stringify(data.recentlyPlayed),
+    tasteVector: JSON.stringify(data.tasteVector ?? {}),
+    fetchedAt: data.fetchedAt ?? new Date(),
   };
   await db
     .insert(spotifySnapshot)
     .values(values)
     .onConflictDoUpdate({ target: spotifySnapshot.userId, set: values });
+}
+
+function deriveTopAlbumsFromTracks(tracks: SpotifyTrack[]): SpotifyAlbum[] {
+  const seen = new Set<string>();
+  const albums: SpotifyAlbum[] = [];
+  for (const track of tracks) {
+    if (seen.has(track.albumId)) continue;
+    seen.add(track.albumId);
+    albums.push({
+      id: track.albumId,
+      name: track.albumName,
+      artist: track.artist,
+      artistId: track.artistId,
+      releaseDate: "",
+      imageUrl: null,
+      spotifyUrl: track.spotifyUrl,
+    });
+    if (albums.length >= 20) break;
+  }
+  return albums;
+}
+
+export async function getQuizResponses(userId: string): Promise<{
+  albumPreferences: QuizAlbumPreference[];
+  subGenres: QuizSubGenres;
+} | null> {
+  await ensureDb();
+  const row = await db
+    .select()
+    .from(quizResponses)
+    .where(eq(quizResponses.userId, userId))
+    .get();
+  if (!row) return null;
+
+  return {
+    albumPreferences: parseJson<QuizAlbumPreference[]>(row.albumPreferences, []),
+    subGenres: parseJson<QuizSubGenres>(row.subGenres, {}),
+  };
+}
+
+export async function saveQuizResponses(
+  userId: string,
+  data: { albumPreferences: QuizAlbumPreference[]; subGenres: QuizSubGenres },
+) {
+  await ensureDb();
+  const values = {
+    userId,
+    albumPreferences: JSON.stringify(data.albumPreferences),
+    subGenres: JSON.stringify(data.subGenres),
+    updatedAt: new Date(),
+  };
+  await db
+    .insert(quizResponses)
+    .values(values)
+    .onConflictDoUpdate({ target: quizResponses.userId, set: values });
 }
 
 export async function getWishlist(userId: string): Promise<WishlistItem[]> {
@@ -204,7 +311,7 @@ export async function getCachedRecommendations(
     .get();
 
   if (!row || row.expiresAt < new Date()) return null;
-  return parseJson<Recommendation[]>(row.results, []);
+  return normalizeRecommendations(parseJson<Recommendation[]>(row.results, []));
 }
 
 export async function clearRecommendationCache(userId: string) {
@@ -328,9 +435,38 @@ export async function mergeGuestData(guestId: string, userId: string) {
       .where(eq(tasteProfile.userId, guestId));
   }
 
-  // Regenerated per real user — no value in migrating.
+  // Regenerated per real user — no value in migrating cache.
   await db.delete(recommendationCache).where(eq(recommendationCache.userId, guestId));
-  await db.delete(spotifySnapshot).where(eq(spotifySnapshot.userId, guestId));
+
+  // Spotify snapshot: adopt guest's if account has none (e.g. synced before sign-in).
+  const targetSnapshot = await db
+    .select({ id: spotifySnapshot.id })
+    .from(spotifySnapshot)
+    .where(eq(spotifySnapshot.userId, userId))
+    .get();
+  if (targetSnapshot) {
+    await db.delete(spotifySnapshot).where(eq(spotifySnapshot.userId, guestId));
+  } else {
+    await db
+      .update(spotifySnapshot)
+      .set({ userId })
+      .where(eq(spotifySnapshot.userId, guestId));
+  }
+
+  // Quiz responses: same collision rule as taste profile.
+  const targetQuizResponses = await db
+    .select({ id: quizResponses.id })
+    .from(quizResponses)
+    .where(eq(quizResponses.userId, userId))
+    .get();
+  if (targetQuizResponses) {
+    await db.delete(quizResponses).where(eq(quizResponses.userId, guestId));
+  } else {
+    await db
+      .update(quizResponses)
+      .set({ userId })
+      .where(eq(quizResponses.userId, guestId));
+  }
 
   // Per-user+release unique tables: move non-colliding rows, drop the rest.
   await mergeWishlist(guestId, userId);

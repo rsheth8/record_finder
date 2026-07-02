@@ -1,12 +1,15 @@
 import { QuizFlow } from "@/components/quiz/quiz-flow";
 import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
+import { getQuizResponses } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function QuizPage() {
   const userId = await getCurrentUserId();
-  const profile = userId ? await getTasteProfile(userId) : null;
+  const [profile, responses] = userId
+    ? await Promise.all([getTasteProfile(userId), getQuizResponses(userId)])
+    : [null, null];
 
   return (
     <div className="space-y-6">
@@ -26,6 +29,8 @@ export default async function QuizPage() {
                 moods: profile.moods,
                 albumPreference: profile.albumPreference,
                 deepCutLevel: profile.deepCutLevel,
+                subGenres: responses?.subGenres ?? {},
+                albumPreferences: responses?.albumPreferences ?? [],
               }
             : null
         }

@@ -46,8 +46,22 @@ export default async function AlbumPage({
   }
 
   const userId = await getCurrentUserId();
-  const inWishlist = userId ? await isInWishlist(userId, releaseId) : false;
-  const feedbackSignal = userId ? await getReleaseFeedback(userId, releaseId) : null;
+  let inWishlist = false;
+  let feedbackSignal = null;
+  let cachedRecs: Awaited<ReturnType<typeof getCachedRecommendations>> = [];
+
+  if (userId) {
+    try {
+      [inWishlist, feedbackSignal, cachedRecs] = await Promise.all([
+        isInWishlist(userId, releaseId),
+        getReleaseFeedback(userId, releaseId),
+        getCachedRecommendations(userId),
+      ]);
+    } catch (error) {
+      console.error("[album] profile lookups failed:", error);
+    }
+  }
+
   const marketplace = release.marketplace;
   const forSale = marketplace && marketplace.numForSale > 0;
   const creditCost = usdToCredits(marketplace?.lowestPrice ?? 5);
@@ -56,9 +70,8 @@ export default async function AlbumPage({
 
   // Transparency: if this release is in the visitor's current picks, surface the
   // reasons it was recommended. And a cheap "more like this" row by style/genre.
-  const cachedRecs = userId ? (await getCachedRecommendations(userId)) ?? [] : [];
   const recReasons =
-    cachedRecs.find((r) => r.discogsReleaseId === releaseId)?.reasons ?? [];
+    (cachedRecs ?? []).find((r) => r.discogsReleaseId === releaseId)?.reasons ?? [];
   const similar = await getSimilarReleases(release).catch(() => []);
 
   return (

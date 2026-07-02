@@ -62,3 +62,19 @@ export const THEMES: ThemeMeta[] = [
 export function isThemeId(value: string): value is ThemeId {
   return (THEME_IDS as readonly string[]).includes(value);
 }
+
+/**
+ * Dark, cinematic themes that get the full ambient scene (spinning vinyl,
+ * light beam, glow orbs). Light/minimal themes stay clean. Scene colors are
+ * driven by each theme's accent/surface tokens, so it adapts automatically.
+ */
+export const IMMERSIVE_THEMES: readonly ThemeId[] = [
+  "midnight-wax",
+  "record-store-noir",
+  "neon-crate",
+  "jazz-club",
+];
+
+export function isImmersiveTheme(value: ThemeId): boolean {
+  return IMMERSIVE_THEMES.includes(value);
+}

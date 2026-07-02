@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { THEMES } from "@/lib/themes";
+import { THEMES, isImmersiveTheme } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 export function NoirHero({
@@ -27,7 +27,7 @@ export function NoirHero({
   const reducedMotion = useReducedMotion();
   const { theme } = useTheme();
   const themeLabel = THEMES.find((t) => t.id === theme)?.label ?? "Record Finder";
-  const isNoir = theme === "record-store-noir";
+  const isImmersive = isImmersiveTheme(theme);
   const sectionRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const subtitleRef = useRef<HTMLParagraphElement>(null);
@@ -64,7 +64,7 @@ export function NoirHero({
       ref={sectionRef}
       className={cn(
         "relative -mx-4 overflow-hidden md:mx-0 md:rounded-2xl",
-        isNoir && "noir-hero",
+        isImmersive && "noir-hero",
       )}
     >
       {coverUrls.length > 0 && (
@@ -77,9 +77,9 @@ export function NoirHero({
         </div>
       )}
 
-      {isNoir && <div ref={glowRef} className="noir-hero__spotlight" />}
+      {isImmersive && <div ref={glowRef} className="noir-hero__spotlight" />}
 
-      {isNoir && (
+      {isImmersive && (
         <div className="noir-vinyl-wrap hidden md:block" aria-hidden>
           <div className="noir-vinyl">
             <div className="noir-vinyl__grooves" />
@@ -89,7 +89,7 @@ export function NoirHero({
         </div>
       )}
 
-      <div className={cn("relative px-4 py-14 md:px-10 md:py-20", isNoir && "noir-hero__content")}>
+      <div className={cn("relative px-4 py-14 md:px-10 md:py-20", isImmersive && "noir-hero__content")}>
         <motion.div
           className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent-muted px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-accent"
           initial={reducedMotion ? false : { opacity: 0, scale: 0.9 }}
@@ -111,7 +111,7 @@ export function NoirHero({
         </p>
         <div ref={ctaRef} className="mt-10 flex flex-wrap gap-4">
           <Link href={primaryCta.href}>
-            <Button size="lg" className={cn("shadow-lg", isNoir && "noir-cta-glow")}>
+            <Button size="lg" className={cn("shadow-lg", isImmersive && "noir-cta-glow")}>
               {primaryCta.label}
             </Button>
           </Link>
@@ -125,7 +125,7 @@ export function NoirHero({
         </div>
       </div>
 
-      {isNoir && <div className="noir-hero__edge-fade" />}
+      {isImmersive && <div className="noir-hero__edge-fade" />}
     </section>
   );
 }

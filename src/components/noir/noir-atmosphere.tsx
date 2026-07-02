@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { isImmersiveTheme } from "@/lib/themes";
 
 export function NoirAtmosphere() {
   const { theme } = useTheme();
@@ -12,10 +13,10 @@ export function NoirAtmosphere() {
   const orb2Ref = useRef<HTMLDivElement>(null);
   const orb3Ref = useRef<HTMLDivElement>(null);
 
-  const isNoir = theme === "record-store-noir";
+  const isImmersive = isImmersiveTheme(theme);
 
   useEffect(() => {
-    if (!isNoir || reducedMotion) return;
+    if (!isImmersive || reducedMotion) return;
 
     const orbs = [orb1Ref.current, orb2Ref.current, orb3Ref.current].filter(Boolean);
     const tweens = orbs.map((orb, i) =>
@@ -30,9 +31,9 @@ export function NoirAtmosphere() {
     );
 
     return () => tweens.forEach((t) => t.kill());
-  }, [isNoir, reducedMotion]);
+  }, [isImmersive, reducedMotion]);
 
-  if (!isNoir) return null;
+  if (!isImmersive) return null;
 
   return (
     <div className="noir-atmosphere" aria-hidden>

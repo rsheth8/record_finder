@@ -386,9 +386,9 @@ body {
   background:
     radial-gradient(
       circle at center,
-      #17130d 0 12.5%,
-      #0c0a08 13% 13.6%,
-      #171310 13.6% 100%
+      color-mix(in srgb, var(--color-bg) 55%, #000) 0 12.5%,
+      #000 13% 13.6%,
+      color-mix(in srgb, var(--color-bg) 50%, #000) 13.6% 100%
     );
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent),
@@ -493,7 +493,7 @@ body {
   height: 40%;
   background: linear-gradient(
     to top,
-    rgba(245, 158, 11, 0.06) 0%,
+    color-mix(in srgb, var(--color-accent) 7%, transparent) 0%,
     transparent 100%
   );
 }
@@ -508,34 +508,34 @@ body {
 .noir-orb--primary {
   width: 420px;
   height: 420px;
-  background: radial-gradient(circle, rgba(245, 158, 11, 0.18) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 18%, transparent) 0%, transparent 70%);
 }
 
 .noir-orb--secondary {
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgba(251, 191, 36, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent-secondary) 14%, transparent) 0%, transparent 70%);
 }
 
 .noir-orb--warm {
   width: 280px;
   height: 280px;
-  background: radial-gradient(circle, rgba(217, 119, 6, 0.1) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 10%, transparent) 0%, transparent 70%);
 }
 
 /* ─── Noir hero ─── */
 .noir-hero {
-  border: 1px solid rgba(245, 158, 11, 0.12);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 14%, transparent);
   background: linear-gradient(
     135deg,
-    rgba(28, 25, 23, 0.9) 0%,
-    rgba(12, 10, 9, 0.95) 50%,
-    rgba(28, 25, 23, 0.85) 100%
+    color-mix(in srgb, var(--color-surface) 92%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg) 94%, transparent) 50%,
+    color-mix(in srgb, var(--color-surface) 80%, transparent) 100%
   );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 24px 64px rgba(0, 0, 0, 0.5),
-    0 0 80px rgba(245, 158, 11, 0.04);
+    0 0 80px color-mix(in srgb, var(--color-accent) 7%, transparent);
 }
 
 .noir-hero__spotlight {
@@ -547,7 +547,7 @@ body {
   transform: translateX(-50%);
   background: radial-gradient(
     ellipse at center,
-    rgba(245, 158, 11, 0.12) 0%,
+    color-mix(in srgb, var(--color-accent) 14%, transparent) 0%,
     transparent 65%
   );
   pointer-events: none;
@@ -572,7 +572,7 @@ body {
 
 .noir-cta-glow {
   box-shadow:
-    0 0 24px rgba(245, 158, 11, 0.35),
+    0 0 24px color-mix(in srgb, var(--color-accent) 38%, transparent),
     0 4px 16px rgba(0, 0, 0, 0.4);
 }
 

@@ -123,31 +123,71 @@ async function searchAlbumsByGenre(
   return data.albums.items.map(mapSpotifyAlbum);
 }
 
-/** Spotify removed /recommendations for new apps — use artist albums + search instead. */
+async function searchAlbumsByArtist(
+  accessToken: string,
+  artistName: string,
+  limit = 5,
+): Promise<SpotifyAlbum[]> {
+  const q = encodeURIComponent(`artist:"${artistName}"`);
+  const data = await spotifyFetch<{ albums: { items: SpotifyAlbumPayload[] } }>(
+    `/search?q=${q}&type=album&limit=${limit}`,
+    accessToken,
+  );
+
+  return data.albums.items
+    .filter((album) => album.album_type !== "single")
+    .map(mapSpotifyAlbum);
+}
+
+/** Spotify removed /recommendations for new apps — use artist albums + search
+ * instead. The pool is deliberately balanced so it's not just "more of what you
+ * already play": familiar (own top artists) is capped to a minority, and a chunk
+ * is reserved for Last.fm similar artists the user does not already listen to. */
 export async function fetchDiscoveryAlbums(
   accessToken: string,
-  seeds: { artists?: SpotifyArtist[]; genres?: string[] },
+  seeds: {
+    artists?: SpotifyArtist[];
+    genres?: string[];
+    similarArtists?: string[];
+  },
   limit = 30,
 ): Promise<SpotifyAlbum[]> {
   const seen = new Set<string>();
   const albums: SpotifyAlbum[] = [];
 
-  function add(next: SpotifyAlbum[]) {
+  /** Adds up to `cap` new albums from `next` (unbounded when `cap` is omitted),
+   * always respecting the overall `limit`. */
+  function add(next: SpotifyAlbum[], cap?: number) {
+    let added = 0;
     for (const album of next) {
+      if (albums.length >= limit) return;
+      if (cap !== undefined && added >= cap) return;
       if (seen.has(album.id)) continue;
       seen.add(album.id);
       albums.push(album);
-      if (albums.length >= limit) return;
+      added++;
     }
   }
 
+  // Familiar: albums from the user's own top artists, capped to a minority.
+  const ownCap = Math.ceil(limit * 0.4);
   for (const artist of seeds.artists?.slice(0, 3) ?? []) {
+    if (albums.length >= ownCap) break;
     try {
-      add(await fetchArtistAlbums(accessToken, artist.id, 10));
+      add(await fetchArtistAlbums(accessToken, artist.id, 6), ownCap - albums.length);
     } catch {
       // Artist albums unavailable — continue with other sources.
     }
+  }
+
+  // Discovery: albums from Last.fm similar artists (new-to-you artists).
+  for (const name of seeds.similarArtists?.slice(0, 8) ?? []) {
     if (albums.length >= limit) break;
+    try {
+      add(await searchAlbumsByArtist(accessToken, name, 3), 2);
+    } catch {
+      // Artist search failed — try the next similar artist.
+    }
   }
 
   if (albums.length < limit) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CarouselRow } from "@/components/discover/carousel-row";
@@ -27,12 +27,14 @@ export function DiscoverFeed({
   quizDecades = [],
   error: initialError,
   degraded: initialDegraded = [],
+  needsGeneration = false,
 }: {
   recommendations: Recommendation[];
   quizGenres?: QuizGenre[];
   quizDecades?: QuizDecade[];
   error?: string | null;
   degraded?: SourceError[];
+  needsGeneration?: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -41,6 +43,18 @@ export function DiscoverFeed({
   const [dismissedDegraded, setDismissedDegraded] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
+  const autoTriggered = useRef(false);
+
+  // First visit with no cached picks: generate them client-side (with the loader)
+  // rather than blocking the page request on a ~25s Discogs pass. Guarded so it
+  // fires at most once, even if generation returns nothing.
+  useEffect(() => {
+    if (needsGeneration && !autoTriggered.current) {
+      autoTriggered.current = true;
+      void refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsGeneration]);
 
   const filtered = useMemo(
     () => filterRecommendations(initialRecommendations, filters),

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { formatCredits, creditsToUsd, formatUsd } from "@/lib/commerce/pricing";
 import { Loader2, ShoppingBag } from "lucide-react";
 
@@ -28,6 +29,7 @@ export function ReserveWithCreditsButton({
   const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (numForSale === 0) {
     return (
@@ -35,12 +37,16 @@ export function ReserveWithCreditsButton({
     );
   }
 
-  async function handleReserve() {
+  function startReserve() {
     if (!session) {
       router.push("/credits");
       return;
     }
+    setError(null);
+    setConfirmOpen(true);
+  }
 
+  async function handleReserve() {
     setLoading(true);
     setError(null);
 
@@ -69,6 +75,7 @@ export function ReserveWithCreditsButton({
       router.push(`/reservations/${data.reservation.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+      setConfirmOpen(false);
     } finally {
       setLoading(false);
     }
@@ -76,12 +83,8 @@ export function ReserveWithCreditsButton({
 
   return (
     <div className="space-y-2">
-      <Button onClick={handleReserve} disabled={loading} className="gap-2">
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <ShoppingBag className="h-4 w-4" />
-        )}
+      <Button onClick={startReserve} disabled={loading} className="gap-2">
+        <ShoppingBag className="h-4 w-4" />
         Reserve for {formatCredits(creditCost)}
       </Button>
       {lowestPriceUsd && (
@@ -94,6 +97,42 @@ export function ReserveWithCreditsButton({
         <p className="text-xs text-amber-400">Sign in with Spotify to earn free credits</p>
       )}
       {error && <p className="text-xs text-red-400">{error}</p>}
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => !loading && setConfirmOpen(false)}
+        title="Confirm reservation"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-300">
+            Spend <span className="font-semibold text-violet-300">{formatCredits(creditCost)}</span>{" "}
+            to hold a concierge queue spot for{" "}
+            <span className="font-medium text-zinc-100">{title}</span> by {artist}.
+          </p>
+          <p className="text-xs text-zinc-500">
+            Credits are free and there&apos;s no payment here — you still complete the
+            actual purchase on Discogs yourself.
+          </p>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleReserve} disabled={loading} className="gap-2">
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShoppingBag className="h-4 w-4" />
+              )}
+              Confirm
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

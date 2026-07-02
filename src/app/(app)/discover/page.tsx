@@ -1,32 +1,23 @@
 import Link from "next/link";
 import { DiscoverFeed } from "@/components/discover/discover-feed";
 import { Button } from "@/components/ui/button";
-import { SignInPrompt } from "@/components/auth/sign-in-prompt";
-import { auth } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
-import { loadRecommendations } from "@/lib/recommendations/load";
+import { getCachedRecommendations } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function DiscoverPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return (
-      <SignInPrompt
-        title="Connect Spotify to see recommendations"
-        description="Sign in to get vinyl picks tailored to your taste."
-      />
-    );
-  }
-
-  const profile = await getTasteProfile(session.user.id);
+  const userId = await getCurrentUserId();
+  const profile = userId ? await getTasteProfile(userId) : null;
 
   if (!profile?.completedAt) {
     return (
       <div className="space-y-4 text-center py-20">
-        <h1 className="text-2xl font-bold">Complete the quiz first</h1>
+        <h1 className="text-2xl font-bold">Take the quiz first</h1>
         <p className="text-zinc-400">
-          We need to know your taste before we can recommend albums.
+          We need to know your taste before we can recommend albums. No account
+          required — connect Spotify later for picks based on your listening.
         </p>
         <Link href="/quiz">
           <Button>Take the Quiz</Button>
@@ -35,10 +26,10 @@ export default async function DiscoverPage() {
     );
   }
 
-  const { recommendations, error, degraded } = await loadRecommendations(
-    session.user.id,
-    false,
-  );
+  // Read cached picks only — generation (a ~25s serial Discogs pass) is kicked
+  // off client-side so it never blocks the page request or trips a serverless
+  // function timeout. An empty cache means "not generated yet".
+  const cached = (await getCachedRecommendations(userId!)) ?? [];
 
   return (
     <div className="space-y-2">
@@ -51,11 +42,10 @@ export default async function DiscoverPage() {
       </div>
       <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 pt-2">
         <DiscoverFeed
-          recommendations={recommendations}
+          recommendations={cached}
           quizGenres={profile.genres}
           quizDecades={profile.decades}
-          error={error}
-          degraded={degraded}
+          needsGeneration={cached.length === 0}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ import {
   spotifySnapshot,
   wishlistItems,
   recommendationCache,
+  recommendationFeedback,
   users,
   creditLedger,
   orders,
@@ -20,6 +21,8 @@ import type {
   QuizGenre,
   QuizDecade,
   QuizMood,
+  FeedbackEntry,
+  FeedbackSignal,
 } from "@/lib/types";
 
 export async function getTasteProfileFromDb(
@@ -230,6 +233,159 @@ export async function cacheRecommendations(
     .insert(recommendationCache)
     .values(values)
     .onConflictDoUpdate({ target: recommendationCache.userId, set: values });
+}
+
+export async function getUserFeedback(userId: string): Promise<FeedbackEntry[]> {
+  await ensureDb();
+  const rows = await db
+    .select()
+    .from(recommendationFeedback)
+    .where(eq(recommendationFeedback.userId, userId))
+    .all();
+
+  return rows.map((r) => ({
+    discogsReleaseId: r.discogsReleaseId,
+    artist: r.artist,
+    signal: r.signal as FeedbackSignal,
+  }));
+}
+
+export async function getReleaseFeedback(
+  userId: string,
+  discogsReleaseId: number,
+): Promise<FeedbackSignal | null> {
+  await ensureDb();
+  const row = await db
+    .select()
+    .from(recommendationFeedback)
+    .where(
+      and(
+        eq(recommendationFeedback.userId, userId),
+        eq(recommendationFeedback.discogsReleaseId, discogsReleaseId),
+      ),
+    )
+    .get();
+  return row ? (row.signal as FeedbackSignal) : null;
+}
+
+export async function setFeedback(
+  userId: string,
+  params: { discogsReleaseId: number; artist: string; signal: FeedbackSignal },
+) {
+  await ensureDb();
+  const now = new Date();
+  await db
+    .insert(recommendationFeedback)
+    .values({
+      userId,
+      discogsReleaseId: params.discogsReleaseId,
+      artist: params.artist,
+      signal: params.signal,
+      createdAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        recommendationFeedback.userId,
+        recommendationFeedback.discogsReleaseId,
+      ],
+      set: { artist: params.artist, signal: params.signal, createdAt: now },
+    });
+}
+
+export async function removeFeedback(userId: string, discogsReleaseId: number) {
+  await ensureDb();
+  await db
+    .delete(recommendationFeedback)
+    .where(
+      and(
+        eq(recommendationFeedback.userId, userId),
+        eq(recommendationFeedback.discogsReleaseId, discogsReleaseId),
+      ),
+    );
+}
+
+/** Re-keys a guest's data onto a real account when they sign in. Guest rows are
+ * moved to the user id; collisions (per-user-unique tables) prefer the existing
+ * account, and the throwaway cache/snapshot are just dropped. Idempotent — a
+ * second run finds no guest rows left. */
+export async function mergeGuestData(guestId: string, userId: string) {
+  await ensureDb();
+  if (guestId === userId) return;
+
+  // taste_profile is unique per user: keep the account's own quiz if it has one,
+  // otherwise adopt the guest's freshly-completed profile.
+  const targetProfile = await db
+    .select({ id: tasteProfile.id })
+    .from(tasteProfile)
+    .where(eq(tasteProfile.userId, userId))
+    .get();
+  if (targetProfile) {
+    await db.delete(tasteProfile).where(eq(tasteProfile.userId, guestId));
+  } else {
+    await db
+      .update(tasteProfile)
+      .set({ userId })
+      .where(eq(tasteProfile.userId, guestId));
+  }
+
+  // Regenerated per real user — no value in migrating.
+  await db.delete(recommendationCache).where(eq(recommendationCache.userId, guestId));
+  await db.delete(spotifySnapshot).where(eq(spotifySnapshot.userId, guestId));
+
+  // Per-user+release unique tables: move non-colliding rows, drop the rest.
+  await mergeWishlist(guestId, userId);
+  await mergeFeedback(guestId, userId);
+}
+
+async function mergeWishlist(guestId: string, userId: string) {
+  const targetIds = new Set(
+    (
+      await db
+        .select({ releaseId: wishlistItems.discogsReleaseId })
+        .from(wishlistItems)
+        .where(eq(wishlistItems.userId, userId))
+        .all()
+    ).map((r) => r.releaseId),
+  );
+  const guestRows = await db
+    .select()
+    .from(wishlistItems)
+    .where(eq(wishlistItems.userId, guestId))
+    .all();
+  for (const row of guestRows) {
+    if (targetIds.has(row.discogsReleaseId)) {
+      await db.delete(wishlistItems).where(eq(wishlistItems.id, row.id));
+    } else {
+      await db.update(wishlistItems).set({ userId }).where(eq(wishlistItems.id, row.id));
+    }
+  }
+}
+
+async function mergeFeedback(guestId: string, userId: string) {
+  const targetIds = new Set(
+    (
+      await db
+        .select({ releaseId: recommendationFeedback.discogsReleaseId })
+        .from(recommendationFeedback)
+        .where(eq(recommendationFeedback.userId, userId))
+        .all()
+    ).map((r) => r.releaseId),
+  );
+  const guestRows = await db
+    .select()
+    .from(recommendationFeedback)
+    .where(eq(recommendationFeedback.userId, guestId))
+    .all();
+  for (const row of guestRows) {
+    if (targetIds.has(row.discogsReleaseId)) {
+      await db.delete(recommendationFeedback).where(eq(recommendationFeedback.id, row.id));
+    } else {
+      await db
+        .update(recommendationFeedback)
+        .set({ userId })
+        .where(eq(recommendationFeedback.id, row.id));
+    }
+  }
 }
 
 export async function ensureUser(userId: string, email?: string | null) {

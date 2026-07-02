@@ -78,8 +78,13 @@ export interface Recommendation {
   year: number | null;
   coverUrl: string | null;
   genres: string[];
+  formats: string[];
   communityRating: number | null;
   ratingCount: number | null;
+  /** Discogs collectors who want / already have this pressing — a vinyl-native
+   * desirability signal (want-heavy = mainstream, have-light = deep cut). */
+  wantCount: number | null;
+  haveCount: number | null;
   spotifyAlbumId: string | null;
   spotifyUrl: string | null;
   score: number;
@@ -105,6 +110,16 @@ export interface DiscogsRelease {
     numForSale: number;
     discogsUrl: string;
   };
+}
+
+/** User reactions to a recommendation, used to steer future picks.
+ * like/dislike adjust artist scoring; own/hide exclude the release entirely. */
+export type FeedbackSignal = "like" | "dislike" | "own" | "hide";
+
+export interface FeedbackEntry {
+  discogsReleaseId: number;
+  artist: string;
+  signal: FeedbackSignal;
 }
 
 export interface WishlistItem {

@@ -5,6 +5,7 @@ import {
   cacheRecommendations,
   clearRecommendationCache,
   saveSpotifySnapshot,
+  getUserFeedback,
 } from "@/lib/db/queries";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import {
@@ -16,9 +17,13 @@ import {
   scoreCandidates,
   getQuizOnlyRecommendations,
   mapQuizGenresToSpotify,
+  collectSimilarArtistNames,
 } from "@/lib/recommendations/engine";
 import { toSourceError, type SourceError } from "@/lib/errors";
 import type { Recommendation } from "@/lib/types";
+
+/** How long a cached Spotify listening snapshot stays fresh before we refetch. */
+const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function loadRecommendations(
   userId: string,
@@ -51,6 +56,12 @@ export async function loadRecommendations(
   try {
     const session = await auth();
     const snapshot = await getSpotifySnapshot(userId);
+    const feedback = await getUserFeedback(userId);
+    const excludedIds = new Set(
+      feedback
+        .filter((f) => f.signal === "hide" || f.signal === "own")
+        .map((f) => f.discogsReleaseId),
+    );
     let recommendations: Recommendation[];
 
     if (session?.error === "RefreshAccessTokenError") {
@@ -67,7 +78,14 @@ export async function loadRecommendations(
       let topGenres = snapshot?.topGenres ?? [];
 
       try {
-        if (!snapshot || snapshot.topArtists.length === 0) {
+        // Refresh listening history when missing or stale, so recommendations
+        // don't freeze on a snapshot taken months ago.
+        const snapshotStale =
+          !snapshot ||
+          snapshot.topArtists.length === 0 ||
+          Date.now() - snapshot.fetchedAt.getTime() > SNAPSHOT_TTL_MS;
+
+        if (snapshotStale) {
           topArtists = await fetchTopArtists(session.accessToken);
           topGenres = deriveTopGenres(topArtists);
           await saveSpotifySnapshot(userId, {
@@ -77,11 +95,16 @@ export async function loadRecommendations(
           });
         }
 
+        // Computed once and shared: seeds new-to-you discovery candidates and
+        // powers the similar-artist scoring bonus (avoids duplicate Last.fm hits).
+        const similarArtistNames = await collectSimilarArtistNames(topArtists);
+
         const candidates = await fetchDiscoveryAlbums(
           session.accessToken,
           {
             artists: topArtists.slice(0, 3),
             genres: mapQuizGenresToSpotify(profile.genres),
+            similarArtists: similarArtistNames,
           },
           30,
         );
@@ -92,6 +115,8 @@ export async function loadRecommendations(
             profile,
             topArtists,
             topGenres,
+            similarArtistNames,
+            feedback,
           );
         } else {
           degraded.push(
@@ -108,6 +133,14 @@ export async function loadRecommendations(
       }
     } else {
       recommendations = await getQuizOnlyRecommendations(profile);
+    }
+
+    // Drop anything the user marked as owned or hidden (covers both the
+    // Spotify-scored and quiz-only paths).
+    if (excludedIds.size > 0) {
+      recommendations = recommendations.filter(
+        (r) => !excludedIds.has(r.discogsReleaseId),
+      );
     }
 
     if (recommendations.length > 0) {

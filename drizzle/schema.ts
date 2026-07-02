@@ -49,6 +49,19 @@ export const recommendationCache = sqliteTable("recommendation_cache", {
   userIdx: uniqueIndex("recommendation_cache_user_idx").on(t.userId),
 }));
 
+export const recommendationFeedback = sqliteTable("recommendation_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  artist: text("artist").notNull().default(""),
+  // One of: like | dislike | own | hide
+  signal: text("signal").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  userReleaseIdx: uniqueIndex("feedback_user_release_idx").on(t.userId, t.discogsReleaseId),
+  userIdx: index("feedback_user_idx").on(t.userId),
+}));
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email"),

@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/identity";
 import { loadRecommendations } from "@/lib/recommendations/load";
 
+// Generation runs a rate-limited, serial Discogs pass that can take ~25s+.
+// Raise the serverless function ceiling so it isn't killed mid-flight.
+export const maxDuration = 60;
+
 export async function POST() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Take the quiz first" },
+      { status: 400 },
+    );
   }
-  const result = await loadRecommendations(session.user.id, true);
+  const result = await loadRecommendations(userId, true);
   if (result.error && result.recommendations.length === 0) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
@@ -18,11 +25,11 @@ export async function POST() {
 }
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Take the quiz first" }, { status: 400 });
   }
-  const result = await loadRecommendations(session.user.id, false);
+  const result = await loadRecommendations(userId, false);
   return NextResponse.json({
     recommendations: result.recommendations,
     error: result.error,

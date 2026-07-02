@@ -2,6 +2,11 @@ import type { DiscogsRelease, Recommendation } from "@/lib/types";
 import { createRateLimiter } from "@/lib/utils/rate-limited-pool";
 import { getArtistTags, getCoverArt, searchReleaseGroup } from "@/lib/musicbrainz/client";
 import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
+import {
+  pickBestMatch,
+  splitDiscogsTitle,
+  type DiscogsSearchResult,
+} from "@/lib/recommendations/match";
 
 const DISCOGS_API = "https://api.discogs.com";
 
@@ -37,36 +42,29 @@ export async function searchVinylRelease(
   title: string,
 ): Promise<Recommendation | null> {
   const q = encodeURIComponent(`${artist} ${title}`);
-  const data = await discogsFetch<{
-    results: {
-      id: number;
-      title: string;
-      year?: string;
-      cover_image?: string;
-      genre?: string[];
-      style?: string[];
-      community?: { want: number; have: number };
-    }[];
-  }>(
-    `/database/search?q=${q}&type=release&format=Vinyl&per_page=5`,
+  const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
+    `/database/search?q=${q}&type=release&format=Vinyl&per_page=10`,
   );
 
-  const result = data.results[0];
+  // Validate rather than trusting result[0]: Discogs keyword search happily
+  // returns wrong pressings, bootlegs, and comps for a loose query.
+  const result = pickBestMatch(artist, title, data.results ?? []);
   if (!result) return null;
 
-  const [artistName, ...titleParts] = result.title.includes(" - ")
-    ? result.title.split(" - ")
-    : ["Unknown", result.title];
+  const parsed = splitDiscogsTitle(result.title);
 
   return {
     discogsReleaseId: result.id,
-    title: titleParts.join(" - ") || result.title,
-    artist: artistName,
+    title: parsed.title || result.title,
+    artist: parsed.artist,
     year: result.year ? parseInt(result.year, 10) : null,
     coverUrl: result.cover_image ?? null,
     genres: [...(result.genre ?? []), ...(result.style ?? [])],
+    formats: result.format ?? [],
     communityRating: null,
     ratingCount: null,
+    wantCount: result.community?.want ?? null,
+    haveCount: result.community?.have ?? null,
     spotifyAlbumId: null,
     spotifyUrl: null,
     score: 0,
@@ -179,33 +177,25 @@ export async function browseByGenreDecade(
   const genre = genres[0] ?? "Rock";
   const q = encodeURIComponent(`${genre} ${decadeYear}`);
 
-  const data = await discogsFetch<{
-    results: {
-      id: number;
-      title: string;
-      year?: string;
-      cover_image?: string;
-      genre?: string[];
-      style?: string[];
-    }[];
-  }>(
+  const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
     `/database/search?q=${q}&type=release&format=Vinyl&per_page=${limit}&sort=want`,
   );
 
-  return data.results.map((r) => {
-    const [artistName, ...titleParts] = r.title.includes(" - ")
-      ? r.title.split(" - ")
-      : ["Unknown", r.title];
+  return (data.results ?? []).map((r) => {
+    const parsed = splitDiscogsTitle(r.title);
 
     return {
       discogsReleaseId: r.id,
-      title: titleParts.join(" - ") || r.title,
-      artist: artistName,
+      title: parsed.title || r.title,
+      artist: parsed.artist,
       year: r.year ? parseInt(r.year, 10) : null,
       coverUrl: r.cover_image ?? null,
       genres: [...(r.genre ?? []), ...(r.style ?? [])],
+      formats: r.format ?? [],
       communityRating: null,
       ratingCount: null,
+      wantCount: r.community?.want ?? null,
+      haveCount: r.community?.have ?? null,
       spotifyAlbumId: null,
       spotifyUrl: null,
       score: 0,

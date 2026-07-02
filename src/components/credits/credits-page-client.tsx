@@ -106,7 +106,7 @@ export function CreditsPageClient({
                 {welcomeBonus.credits} credits
               </p>
               <p className="mt-2 text-sm text-zinc-500">
-                {hasWelcome ? "Already claimed" : "Claimed automatically on sign-in"}
+                {hasWelcome ? "Already claimed" : "Granted automatically on your first visit here"}
               </p>
             </Card>
           )}

@@ -2,8 +2,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRelease } from "@/lib/discogs/client";
-import { isInWishlist } from "@/lib/db/queries";
+import { isInWishlist, getReleaseFeedback } from "@/lib/db/queries";
 import { WishlistButton } from "@/components/album/wishlist-button";
+import { FeedbackButtons } from "@/components/album/feedback-buttons";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/auth";
@@ -41,6 +42,9 @@ export default async function AlbumPage({
   const inWishlist = session?.user?.id
     ? await isInWishlist(session.user.id, releaseId)
     : false;
+  const feedbackSignal = session?.user?.id
+    ? await getReleaseFeedback(session.user.id, releaseId)
+    : null;
   const marketplace = release.marketplace;
   const creditCost = usdToCredits(marketplace?.lowestPrice ?? 5);
 
@@ -130,6 +134,17 @@ export default async function AlbumPage({
                 Listen on Spotify
               </a>
             )}
+          </div>
+
+          <div className="space-y-2 border-t border-zinc-800 pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Tune your recommendations
+            </p>
+            <FeedbackButtons
+              discogsReleaseId={releaseId}
+              artist={release.artist}
+              initialSignal={feedbackSignal}
+            />
           </div>
         </div>
       </div>

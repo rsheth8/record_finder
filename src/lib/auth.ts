@@ -1,6 +1,8 @@
 import NextAuth from "next-auth";
 import Spotify from "next-auth/providers/spotify";
 import type { JWT } from "next-auth/jwt";
+import { readGuestId, clearGuestCookie } from "@/lib/guest-cookie";
+import { mergeGuestData } from "@/lib/db/queries";
 
 function ensureAuthUrl() {
   if (process.env.AUTH_URL) return;
@@ -81,6 +83,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+
+        // First sign-in: adopt anything the visitor did as a guest, then retire
+        // the guest cookie. Best-effort — never block sign-in on a merge failure.
+        if (token.sub) {
+          try {
+            const guestId = await readGuestId();
+            if (guestId) {
+              await mergeGuestData(guestId, token.sub);
+              await clearGuestCookie();
+            }
+          } catch {
+            // Ignore — the user is still signed in; guest data just isn't merged.
+          }
+        }
+
         return token;
       }
 

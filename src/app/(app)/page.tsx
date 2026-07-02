@@ -6,6 +6,7 @@ import { SpotifySync } from "@/components/spotify-sync";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { getCachedRecommendations } from "@/lib/db/queries";
+import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import { Compass, ClipboardList } from "lucide-react";
 
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await auth();
-  const userId = session?.user?.id;
+  const userId = await getCurrentUserId();
   const profile = userId ? await getTasteProfile(userId) : null;
   const recommendations = userId
     ? ((await getCachedRecommendations(userId)) ?? [])
@@ -21,6 +22,7 @@ export default async function HomePage() {
   const topPicks = [...recommendations]
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
+  const quizDone = !!profile?.completedAt;
 
   return (
     <div className="space-y-8">
@@ -29,10 +31,17 @@ export default async function HomePage() {
           Find albums worth spinning
         </h1>
         <p className="max-w-2xl text-zinc-400">
-          Discover full albums on vinyl before you buy. Tell us your taste, connect
-          Spotify, and get recommendations with pressing info from Discogs.
+          Discover full albums on vinyl before you buy — every pick is confirmed to
+          exist as a real pressing on Discogs. Take a 2-minute taste quiz to get
+          started; no account needed. Connect Spotify anytime for picks tuned to
+          your listening.
         </p>
-        <SpotifyConnect spotifyConfigured={isSpotifyConfigured} />
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href={quizDone ? "/discover" : "/quiz"}>
+            <Button>{quizDone ? "Browse your picks" : "Take the taste quiz"}</Button>
+          </Link>
+          <SpotifyConnect spotifyConfigured={isSpotifyConfigured} />
+        </div>
         <SpotifySync />
       </section>
 
@@ -43,13 +52,13 @@ export default async function HomePage() {
             Taste Quiz
           </CardTitle>
           <CardDescription className="mt-2">
-            {profile?.completedAt
+            {quizDone
               ? "Quiz complete — retake anytime to refine picks."
-              : "Start here: 5 quick questions about genres, eras, and how you listen."}
+              : "Start here: 5 quick questions about genres, eras, and how you listen. No sign-in required."}
           </CardDescription>
           <Link href="/quiz" className="mt-4 inline-block">
             <Button variant="outline">
-              {profile?.completedAt ? "Retake Quiz" : "Start Quiz"}
+              {quizDone ? "Retake Quiz" : "Start Quiz"}
             </Button>
           </Link>
         </Card>
@@ -60,21 +69,26 @@ export default async function HomePage() {
             Discover
           </CardTitle>
           <CardDescription className="mt-2">
-            {profile?.completedAt
+            {quizDone
               ? "Browse your personalized vinyl recommendations."
               : "Complete the quiz first to unlock recommendations."}
           </CardDescription>
           <Link href="/discover" className="mt-4 inline-block">
-            <Button disabled={!profile?.completedAt}>Browse Picks</Button>
+            <Button disabled={!quizDone}>Browse Picks</Button>
           </Link>
         </Card>
       </section>
 
-      {session?.accessToken && (
+      {session?.accessToken ? (
         <p className="text-sm text-emerald-400">
           Spotify connected — recommendations will use your listening history.
         </p>
-      )}
+      ) : quizDone ? (
+        <p className="text-sm text-zinc-500">
+          Want sharper picks? Connect Spotify above to blend in your listening
+          history and save your wishlist across devices.
+        </p>
+      ) : null}
 
       {topPicks.length > 0 && (
         <section className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">

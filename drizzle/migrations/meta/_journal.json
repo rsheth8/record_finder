@@ -22,6 +22,13 @@
       "when": 1782954197962,
       "tag": "0002_sturdy_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1782968213736,
+      "tag": "0003_rainy_tiger_shark",
+      "breakpoints": true
     }
   ]
 }

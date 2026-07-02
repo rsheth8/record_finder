@@ -1,22 +1,12 @@
 import { QuizFlow } from "@/components/quiz/quiz-flow";
-import { SignInPrompt } from "@/components/auth/sign-in-prompt";
-import { auth } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function QuizPage() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return (
-      <SignInPrompt
-        title="Connect Spotify to start"
-        description="We use your Spotify listening history and quiz answers together to build your taste profile."
-      />
-    );
-  }
-
-  const profile = await getTasteProfile(session.user.id);
+  const userId = await getCurrentUserId();
+  const profile = userId ? await getTasteProfile(userId) : null;
 
   return (
     <div className="space-y-6">
@@ -24,7 +14,7 @@ export default async function QuizPage() {
         <h1 className="text-2xl font-bold text-zinc-50">Taste Quiz</h1>
         <p className="mt-2 text-zinc-400">
           Help us understand what you want on vinyl — not just singles, but full
-          albums that reward a sit-down listen.
+          albums that reward a sit-down listen. No account needed to start.
         </p>
       </div>
       <QuizFlow

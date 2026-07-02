@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Range } from "@/components/ui/range";
 import {
   QUIZ_GENRES,
   QUIZ_DECADES,
@@ -233,13 +234,11 @@ export function QuizFlow({ initial }: { initial?: {
             <CardDescription className="mt-2 mb-4">
               Slide left for classics everyone knows, right for lesser-known pressings.
             </CardDescription>
-            <input
-              type="range"
+            <Range
               min={0}
               max={100}
               value={deepCutLevel}
               onChange={(e) => setDeepCutLevel(Number(e.target.value))}
-              className="w-full accent-violet-500"
             />
             <div className="mt-2 flex justify-between text-sm text-zinc-400">
               <span>Classic picks</span>

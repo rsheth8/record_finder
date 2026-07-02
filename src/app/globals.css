@@ -226,7 +226,7 @@ body {
     0 4px 16px rgba(41, 37, 36, 0.1);
 }
 
-[data-theme="hifi-minimal"] .poster-overlay-gradient {
+[data-theme="hifi-minimal"] .poster-overlay-text {
   display: none;
 }
 
@@ -472,8 +472,7 @@ body {
 }
 
 /* ─── Noir glass cards ─── */
-[data-theme="record-store-noir"] .noir-glass,
-:root .noir-glass {
+[data-theme="record-store-noir"] .noir-glass {
   background: linear-gradient(
     145deg,
     rgba(28, 25, 23, 0.85) 0%,
@@ -486,8 +485,7 @@ body {
     0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-[data-theme="record-store-noir"] .poster-sleeve,
-:root .poster-sleeve {
+[data-theme="record-store-noir"] .poster-sleeve {
   box-shadow:
     -6px 0 14px rgba(0, 0, 0, 0.35),
     0 4px 20px rgba(0, 0, 0, 0.4),

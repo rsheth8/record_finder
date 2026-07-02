@@ -40,14 +40,12 @@ export default async function DiscoverPage() {
           details, then shop listings on Discogs.
         </p>
       </div>
-      <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 pt-2">
-        <DiscoverFeed
+      <DiscoverFeed
           recommendations={cached}
           quizGenres={profile.genres}
           quizDecades={profile.decades}
           needsGeneration={cached.length === 0}
         />
-      </div>
     </div>
   );
 }

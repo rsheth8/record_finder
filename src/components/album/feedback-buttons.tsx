@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { FeedbackSignal } from "@/lib/types";
@@ -29,18 +28,11 @@ export function FeedbackButtons({
   initialSignal: FeedbackSignal | null;
 }) {
   const router = useRouter();
-  const { data: session } = useSession();
   const { showToast } = useToast();
   const [signal, setSignal] = useState<FeedbackSignal | null>(initialSignal);
   const [loading, setLoading] = useState(false);
 
   async function choose(next: FeedbackSignal, toastMsg: string) {
-    if (!session) {
-      router.push("/");
-      showToast("Connect Spotify to tune your recommendations", "info");
-      return;
-    }
-
     setLoading(true);
     try {
       if (signal === next) {
@@ -78,8 +70,8 @@ export function FeedbackButtons({
             className={cn(
               "inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-colors disabled:opacity-50",
               active
-                ? "border-violet-500 bg-violet-600/20 text-violet-200"
-                : "border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-zinc-100",
+                ? "border-accent bg-accent-muted text-accent"
+                : "border-border text-muted hover:border-accent/50 hover:text-foreground",
             )}
           >
             <Icon className={cn("h-4 w-4", active && "fill-current")} />

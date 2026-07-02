@@ -91,21 +91,31 @@ export function PosterCard({
             </div>
           )}
 
-          <div className="poster-overlay-gradient absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
+          <div className="poster-overlay-gradient absolute inset-0 bg-gradient-to-t from-background/95 via-background/40 to-transparent" />
 
-          <div className="absolute inset-x-0 bottom-0 p-3">
-            <p className="line-clamp-2 text-sm font-semibold leading-tight text-white">
+          <div className="absolute inset-x-0 bottom-0 p-3 poster-overlay-text">
+            <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
               {rec.title}
             </p>
-            <p className="mt-1 truncate text-xs text-stone-300">
+            <p className="mt-1 truncate text-xs text-muted">
               {rec.artist}
               {rec.year ? ` · ${rec.year}` : ""}
             </p>
             {rec.reasons[0] && (
-              <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-stone-400">
+              <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted">
                 {rec.reasons[0]}
               </p>
             )}
+          </div>
+
+          <div className="poster-title-below hidden px-1 pt-2">
+            <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
+              {rec.title}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-muted">
+              {rec.artist}
+              {rec.year ? ` · ${rec.year}` : ""}
+            </p>
           </div>
 
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity duration-200 group-hover:opacity-100">

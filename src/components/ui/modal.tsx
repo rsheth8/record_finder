@@ -39,18 +39,18 @@ export function Modal({ open, onClose, title, className, children, ...props }: M
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-xl focus:outline-none",
+          "w-full max-w-md rounded-xl border border-border bg-surface p-5 shadow-xl focus:outline-none",
           className,
         )}
         {...props}
       >
         {title && (
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-zinc-50">{title}</h2>
+            <h2 className="text-lg font-semibold text-foreground">{title}</h2>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              className="rounded-md p-1 text-muted hover:bg-surface-elevated hover:text-foreground"
               aria-label="Close"
             >
               <X className="h-4 w-4" />

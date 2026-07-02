@@ -208,7 +208,7 @@ export function DiscoverFeed({
       )}
 
       {!dismissedDegraded && degraded.length > 0 && (
-        <div className="mx-4 flex items-start gap-3 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm text-amber-200 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <div className="mx-4 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
           <div className="flex-1 space-y-1">
             {degraded.map((d, i) => (
               <p key={i}>
@@ -220,7 +220,7 @@ export function DiscoverFeed({
           <button
             type="button"
             onClick={() => setDismissedDegraded(true)}
-            className="text-amber-400/70 hover:text-amber-200"
+            className="text-warning/70 hover:text-warning"
             aria-label="Dismiss"
           >
             <X className="h-4 w-4" />

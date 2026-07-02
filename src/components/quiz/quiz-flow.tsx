@@ -279,13 +279,11 @@ export function QuizFlow({ initial }: { initial?: {
               <CardDescription className="mt-2 mb-6">
                 Slide left for classics everyone knows, right for lesser-known pressings.
               </CardDescription>
-              <input
-                type="range"
+              <Range
                 min={0}
                 max={100}
                 value={deepCutLevel}
                 onChange={(e) => setDeepCutLevel(Number(e.target.value))}
-                className="w-full accent-accent"
               />
               <div className="mt-3 flex justify-between text-sm text-muted">
                 <span>Classic picks</span>

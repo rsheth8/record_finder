@@ -181,13 +181,14 @@ export default async function AlbumPage({
         </Card>
       </div>
 
+      <div className="mt-8 space-y-8">
       {recReasons.length > 0 && (
-        <Card className="border-violet-800/40 bg-violet-950/10">
+        <Card className="border-accent/30 bg-accent-muted">
           <CardTitle>Why we recommended this</CardTitle>
           <ul className="mt-3 space-y-1.5">
             {recReasons.map((reason) => (
-              <li key={reason} className="flex items-start gap-2 text-sm text-zinc-300">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+              <li key={reason} className="flex items-start gap-2 text-sm text-muted">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                 {reason}
               </li>
             ))}
@@ -196,7 +197,7 @@ export default async function AlbumPage({
       )}
 
       {release.formats.length > 0 && (
-        <Card className="mt-8">
+        <Card>
           <div className="flex items-start gap-4">
             <div className="vinyl-loader-disc relative h-14 w-14 shrink-0">
               <div className="vinyl-loader-grooves absolute inset-0 rounded-full" />
@@ -213,7 +214,7 @@ export default async function AlbumPage({
       )}
 
       {release.tracklist.length > 0 && (
-        <Card className="mt-6">
+        <Card>
           <CardTitle>Tracklist</CardTitle>
           <ol className="mt-4 divide-y divide-border-subtle">
             {release.tracklist.map((track, i) => (
@@ -236,6 +237,22 @@ export default async function AlbumPage({
           </ol>
         </Card>
       )}
+
+      {userId && (
+        <Card className="md:hidden">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+            Tune your recommendations
+          </p>
+          <div className="mt-3">
+            <FeedbackButtons
+              discogsReleaseId={releaseId}
+              artist={release.artist}
+              initialSignal={feedbackSignal}
+            />
+          </div>
+        </Card>
+      )}
+      </div>
 
       {similar.length > 0 && (
         <section className="relative left-1/2 mt-8 w-screen max-w-[100vw] -translate-x-1/2">
@@ -263,7 +280,7 @@ export default async function AlbumPage({
         />
       </div>
 
-      <div className="h-20 md:hidden" />
+      <div className="h-24 md:hidden" />
     </div>
   );
 }

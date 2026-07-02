@@ -1,25 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import {
   getUserFeedback,
   setFeedback,
   removeFeedback,
   clearRecommendationCache,
 } from "@/lib/db/queries";
+import { getCurrentUserId } from "@/lib/identity";
 import { feedbackSchema } from "@/lib/validation/feedback";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Complete the quiz first" }, { status: 401 });
   }
-  return NextResponse.json(await getUserFeedback(session.user.id));
+  return NextResponse.json(await getUserFeedback(userId));
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Complete the quiz first" }, { status: 401 });
   }
 
   const parsed = feedbackSchema.safeParse(await request.json());
@@ -30,17 +30,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await setFeedback(session.user.id, parsed.data);
-  // Feedback changes ranking/eligibility, so drop the cached picks.
-  await clearRecommendationCache(session.user.id);
+  await setFeedback(userId, parsed.data);
+  await clearRecommendationCache(userId);
 
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  const userId = await getCurrentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Complete the quiz first" }, { status: 401 });
   }
 
   const id = request.nextUrl.searchParams.get("discogsReleaseId");
@@ -48,8 +47,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Missing discogsReleaseId" }, { status: 400 });
   }
 
-  await removeFeedback(session.user.id, parseInt(id, 10));
-  await clearRecommendationCache(session.user.id);
+  await removeFeedback(userId, parseInt(id, 10));
+  await clearRecommendationCache(userId);
 
   return NextResponse.json({ ok: true });
 }

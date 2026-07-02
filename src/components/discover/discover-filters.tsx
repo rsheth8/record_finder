@@ -102,7 +102,7 @@ export function DiscoverFilters({
   }
 
   return (
-    <div className="sticky top-16 z-20 -mx-4 space-y-3 border-b border-border-subtle bg-[var(--color-nav-bg)] px-4 py-3 backdrop-blur-md sm:mx-0 sm:rounded-xl sm:border sm:px-4">
+    <div className="sticky top-16 z-20 space-y-3 border-b border-border-subtle bg-[var(--color-nav-bg)] py-3 backdrop-blur-md sm:rounded-xl sm:border sm:px-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />

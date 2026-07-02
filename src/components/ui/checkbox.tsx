@@ -10,7 +10,7 @@ export const Checkbox = forwardRef<
       ref={ref}
       type="checkbox"
       className={cn(
-        "h-4 w-4 rounded border-zinc-600 accent-violet-500",
+        "h-4 w-4 rounded border-border accent-accent",
         className,
       )}
       {...props}

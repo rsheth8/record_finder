@@ -27,14 +27,12 @@ function applyTheme(theme: ThemeId) {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeId>(DEFAULT_THEME);
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     const initial = stored && isThemeId(stored) ? stored : DEFAULT_THEME;
     setThemeState(initial);
     applyTheme(initial);
-    setMounted(true);
   }, []);
 
   const setTheme = useCallback((next: ThemeId) => {
@@ -42,10 +40,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(THEME_STORAGE_KEY, next);
     applyTheme(next);
   }, []);
-
-  if (!mounted) {
-    return <>{children}</>;
-  }
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>

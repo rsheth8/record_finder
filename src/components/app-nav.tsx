@@ -30,7 +30,7 @@ export function AppNav() {
             animate={reducedMotion ? {} : { rotate: [0, 360] }}
             transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
           >
-            <Disc3 className="h-7 w-7 text-accent drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
+            <Disc3 className="h-7 w-7 text-accent drop-shadow-[0_0_8px_var(--color-accent-muted)]" />
           </motion.div>
           <span className="hidden sm:inline">Record Finder</span>
         </Link>

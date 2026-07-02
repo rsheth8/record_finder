@@ -104,10 +104,10 @@ export default function RootLayout({
       }
       suppressHydrationWarning
     >
-      <Script id="theme-init" strategy="beforeInteractive">
-        {`(function(){try{var t=localStorage.getItem("record-finder-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}})();`}
-      </Script>
       <body className="flex min-h-full flex-col font-sans">
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`(function(){try{var t=localStorage.getItem("record-finder-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}})();`}
+        </Script>
         <Providers>{children}</Providers>
       </body>
     </html>

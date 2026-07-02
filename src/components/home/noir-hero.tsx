@@ -6,7 +6,10 @@ import Image from "next/image";
 import gsap from "gsap";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { THEMES } from "@/lib/themes";
+import { cn } from "@/lib/utils";
 
 export function NoirHero({
   title,
@@ -22,6 +25,9 @@ export function NoirHero({
   coverUrls: string[];
 }) {
   const reducedMotion = useReducedMotion();
+  const { theme } = useTheme();
+  const themeLabel = THEMES.find((t) => t.id === theme)?.label ?? "Record Finder";
+  const isNoir = theme === "record-store-noir";
   const sectionRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const subtitleRef = useRef<HTMLParagraphElement>(null);
@@ -56,7 +62,10 @@ export function NoirHero({
   return (
     <section
       ref={sectionRef}
-      className="noir-hero relative -mx-4 overflow-hidden md:mx-0 md:rounded-2xl"
+      className={cn(
+        "relative -mx-4 overflow-hidden md:mx-0 md:rounded-2xl",
+        isNoir && "noir-hero",
+      )}
     >
       {coverUrls.length > 0 && (
         <div className="absolute inset-0 grid grid-cols-4 gap-1 opacity-20 md:grid-cols-6">
@@ -68,17 +77,17 @@ export function NoirHero({
         </div>
       )}
 
-      <div ref={glowRef} className="noir-hero__spotlight" />
+      {isNoir && <div ref={glowRef} className="noir-hero__spotlight" />}
 
-      <div className="noir-hero__content relative px-4 py-14 md:px-10 md:py-20">
+      <div className={cn("relative px-4 py-14 md:px-10 md:py-20", isNoir && "noir-hero__content")}>
         <motion.div
-          className="noir-hero__badge mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent-muted px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-accent"
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent-muted px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-accent"
           initial={reducedMotion ? false : { opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.5 }}
         >
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-          Record Store Noir
+          {themeLabel}
         </motion.div>
 
         <h1
@@ -92,7 +101,7 @@ export function NoirHero({
         </p>
         <div ref={ctaRef} className="mt-10 flex flex-wrap gap-4">
           <Link href={primaryCta.href}>
-            <Button size="lg" className="noir-cta-glow shadow-lg">
+            <Button size="lg" className={cn("shadow-lg", isNoir && "noir-cta-glow")}>
               {primaryCta.label}
             </Button>
           </Link>
@@ -106,7 +115,7 @@ export function NoirHero({
         </div>
       </div>
 
-      <div className="noir-hero__edge-fade" />
+      {isNoir && <div className="noir-hero__edge-fade" />}
     </section>
   );
 }

@@ -121,7 +121,7 @@ export default async function HomePage() {
         </StaggerItem>
       </StaggerContainer>
 
-      {spotifyConnected && (
+      {spotifyConnected ? (
         <p className="text-sm text-success">
           Spotify connected — recommendations use your listening history.
         </p>

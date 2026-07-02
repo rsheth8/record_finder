@@ -74,6 +74,7 @@ export function ReserveWithCreditsButton({
         throw new Error(data.error ?? "Could not reserve record");
       }
 
+      setConfirmOpen(false);
       router.push(`/reservations/${data.reservation.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -85,10 +86,57 @@ export function ReserveWithCreditsButton({
 
   if (compact) {
     return (
-      <Button variant="outline" size="sm" onClick={handleReserve} disabled={loading} className="gap-1.5">
-        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingBag className="h-4 w-4" />}
-        {formatCredits(creditCost)}
-      </Button>
+      <>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={startReserve}
+          disabled={loading}
+          className="gap-1.5"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ShoppingBag className="h-4 w-4" />
+          )}
+          {formatCredits(creditCost)}
+        </Button>
+        <Modal
+          open={confirmOpen}
+          onClose={() => !loading && setConfirmOpen(false)}
+          title="Confirm reservation"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted">
+              Spend <span className="font-semibold text-accent">{formatCredits(creditCost)}</span>{" "}
+              to hold a concierge queue spot for{" "}
+              <span className="font-medium text-foreground">{title}</span> by {artist}.
+            </p>
+            <p className="text-xs text-muted">
+              Credits are free and there&apos;s no payment here — you still complete the
+              actual purchase on Discogs yourself.
+            </p>
+            {error && <p className="text-xs text-error">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmOpen(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleReserve} disabled={loading} className="gap-2">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ShoppingBag className="h-4 w-4" />
+                )}
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </>
     );
   }
 
@@ -111,7 +159,18 @@ export function ReserveWithCreditsButton({
       {!signedIn && (
         <p className="text-xs text-warning">Sign in with Spotify to earn free credits</p>
       )}
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-xs text-error">{error}</p>}
+      {discogsUrl && (
+        <a
+          href={discogsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+        >
+          <ExternalLink className="h-3 w-3" />
+          Or browse all listings on Discogs
+        </a>
+      )}
 
       <Modal
         open={confirmOpen}
@@ -119,16 +178,16 @@ export function ReserveWithCreditsButton({
         title="Confirm reservation"
       >
         <div className="space-y-4">
-          <p className="text-sm text-zinc-300">
-            Spend <span className="font-semibold text-violet-300">{formatCredits(creditCost)}</span>{" "}
+          <p className="text-sm text-muted">
+            Spend <span className="font-semibold text-accent">{formatCredits(creditCost)}</span>{" "}
             to hold a concierge queue spot for{" "}
-            <span className="font-medium text-zinc-100">{title}</span> by {artist}.
+            <span className="font-medium text-foreground">{title}</span> by {artist}.
           </p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Credits are free and there&apos;s no payment here — you still complete the
             actual purchase on Discogs yourself.
           </p>
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-error">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button
               variant="ghost"
@@ -148,17 +207,6 @@ export function ReserveWithCreditsButton({
           </div>
         </div>
       </Modal>
-      {discogsUrl && (
-        <a
-          href={discogsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Or browse all listings on Discogs
-        </a>
-      )}
     </div>
   );
 }

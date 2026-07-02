@@ -6,10 +6,10 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 
 type ToastVariant = "success" | "error" | "info";
 
@@ -32,13 +32,18 @@ const VARIANT_ICON: Record<ToastVariant, typeof CheckCircle2> = {
 };
 
 const VARIANT_CLASS: Record<ToastVariant, string> = {
-  success: "border-emerald-600/40 text-emerald-200",
-  error: "border-red-600/40 text-red-200",
-  info: "border-violet-600/40 text-violet-200",
+  success: "border-success/40 text-success",
+  error: "border-error/40 text-error",
+  info: "border-accent/40 text-accent",
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const dismiss = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -58,36 +63,34 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {typeof document !== "undefined" &&
-        createPortal(
-          <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
-            {toasts.map((toast) => {
-              const Icon = VARIANT_ICON[toast.variant];
-              return (
-                <div
-                  key={toast.id}
-                  role="status"
-                  className={cn(
-                    "pointer-events-auto flex items-start gap-2 rounded-lg border bg-zinc-900/95 px-4 py-3 text-sm shadow-xl backdrop-blur",
+      {mounted && (
+        <div className="pointer-events-none fixed bottom-20 right-4 z-50 flex w-full max-w-sm flex-col gap-2 md:bottom-4">
+          {toasts.map((toast) => {
+            const Icon = VARIANT_ICON[toast.variant];
+            return (
+              <div
+                key={toast.id}
+                role="status"
+                className={cn(
+                    "pointer-events-auto flex items-start gap-2 rounded-lg border bg-surface/95 px-4 py-3 text-sm shadow-xl backdrop-blur",
                     VARIANT_CLASS[toast.variant],
                   )}
                 >
                   <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p className="flex-1 text-zinc-100">{toast.message}</p>
+                  <p className="flex-1 text-foreground">{toast.message}</p>
                   <button
                     type="button"
                     onClick={() => dismiss(toast.id)}
-                    className="text-zinc-500 hover:text-zinc-300"
-                    aria-label="Dismiss"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>,
-          document.body,
-        )}
+                    className="text-muted hover:text-foreground"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </ToastContext.Provider>
   );
 }

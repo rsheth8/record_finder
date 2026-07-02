@@ -35,12 +35,12 @@ export function MarketplaceBadge({ discogsReleaseId }: { discogsReleaseId: numbe
   }, [discogsReleaseId]);
 
   if (state === "loading") {
-    return <span className="text-xs text-zinc-600">Checking Discogs…</span>;
+    return <span className="text-xs text-muted">Checking Discogs…</span>;
   }
   if (state === "error" || !stats) return null;
 
   if (stats.numForSale === 0) {
-    return <span className="text-xs text-zinc-500">Not currently for sale</span>;
+    return <span className="text-xs text-muted">Not currently for sale</span>;
   }
 
   return (
@@ -48,7 +48,7 @@ export function MarketplaceBadge({ discogsReleaseId }: { discogsReleaseId: numbe
       href={stats.discogsUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-violet-300 hover:underline"
+      className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
     >
       {stats.lowestPrice ? `From ${formatUsd(stats.lowestPrice)} · ` : ""}
       {stats.numForSale} for sale

@@ -40,8 +40,8 @@ export default async function CreditsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-50">Credits</h1>
-        <p className="mt-2 text-zinc-400">
+        <h1 className="font-display text-2xl font-bold text-foreground">Credits</h1>
+        <p className="mt-2 text-muted">
           Free credits to reserve vinyl finds. Complete purchase on Discogs when
           ready — no payment required here.
         </p>

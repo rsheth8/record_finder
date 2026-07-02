@@ -3,12 +3,14 @@ import { HTMLAttributes } from "react";
 
 export function Card({
   className,
+  glow = false,
   ...props
-}: HTMLAttributes<HTMLDivElement>) {
+}: HTMLAttributes<HTMLDivElement> & { glow?: boolean }) {
   return (
     <div
       className={cn(
-        "rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 shadow-sm",
+        "rounded-xl border border-border bg-surface/60 p-5",
+        glow ? "border-accent/30 bg-accent-muted" : "shadow-[var(--shadow-card)]",
         className,
       )}
       {...props}
@@ -22,7 +24,7 @@ export function CardTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-lg font-semibold text-zinc-50", className)}
+      className={cn("font-display text-lg font-semibold text-foreground", className)}
       {...props}
     />
   );
@@ -33,6 +35,6 @@ export function CardDescription({
   ...props
 }: HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={cn("text-sm text-zinc-400", className)} {...props} />
+    <p className={cn("text-sm text-muted", className)} {...props} />
   );
 }

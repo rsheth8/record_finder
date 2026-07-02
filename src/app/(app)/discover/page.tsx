@@ -13,9 +13,9 @@ export default async function DiscoverPage() {
 
   if (!profile?.completedAt) {
     return (
-      <div className="space-y-4 text-center py-20">
-        <h1 className="text-2xl font-bold">Take the quiz first</h1>
-        <p className="text-zinc-400">
+      <div className="space-y-4 py-20 text-center">
+        <h1 className="font-display text-2xl font-bold">Take the quiz first</h1>
+        <p className="text-muted">
           We need to know your taste before we can recommend albums. No account
           required — connect Spotify later for picks based on your listening.
         </p>
@@ -34,10 +34,10 @@ export default async function DiscoverPage() {
   return (
     <div className="space-y-2">
       <div className="px-4 sm:px-0">
-        <h1 className="text-2xl font-bold text-zinc-50 sm:text-3xl">Discover</h1>
-        <p className="mt-2 max-w-2xl text-zinc-400">
-          Albums with confirmed vinyl pressings, ranked for your taste. Search, filter,
-          and browse by genre or era.
+        <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Discover</h1>
+        <p className="mt-2 max-w-2xl text-muted">
+          Scroll curated rows of vinyl matched to your taste, open any album for pressing
+          details, then shop listings on Discogs.
         </p>
       </div>
       <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 pt-2">

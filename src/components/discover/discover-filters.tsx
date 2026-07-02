@@ -9,13 +9,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   DEFAULT_DISCOVER_FILTERS,
   getAvailableGenres,
-  hasActiveFilters,
+  hasContentFilters,
   type DiscoverFilterState,
   type SortOption,
 } from "@/lib/recommendations/filter";
 import { QUIZ_DECADES, type QuizDecade, type Recommendation } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "best_match", label: "Best match" },
@@ -48,8 +48,8 @@ function FilterPill({
       className={cn(
         "rounded-full border px-3 py-1.5 text-xs transition-colors",
         active
-          ? "border-violet-500 bg-violet-600/20 text-violet-200"
-          : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
+          ? "border-accent bg-accent-muted text-accent"
+          : "border-border text-muted hover:border-accent/50 hover:text-foreground",
       )}
     >
       {children}
@@ -74,7 +74,14 @@ export function DiscoverFilters({
     [recommendations],
   );
 
-  const active = hasActiveFilters(filters);
+  const active = hasContentFilters(filters);
+  const activeCount = [
+    filters.genres.length,
+    filters.decades.length,
+    filters.deepCutOnly ? 1 : 0,
+    filters.minRating ? 1 : 0,
+    filters.search ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
 
   function toggleGenre(genre: string) {
     const genres = filters.genres.includes(genre)
@@ -95,16 +102,16 @@ export function DiscoverFilters({
   }
 
   return (
-    <div className="space-y-4 px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+    <div className="sticky top-16 z-20 -mx-4 space-y-3 border-b border-border-subtle bg-[var(--color-nav-bg)] px-4 py-3 backdrop-blur-md sm:mx-0 sm:rounded-xl sm:border sm:px-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input
             type="search"
             value={filters.search}
             onChange={(e) => onChange({ ...filters, search: e.target.value })}
             placeholder="Search artist or album..."
-            className="pl-10"
+            className="py-2.5 pl-10"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -112,28 +119,16 @@ export function DiscoverFilters({
             variant="outline"
             size="sm"
             onClick={() => setExpanded((v) => !v)}
-            className={cn("gap-2", active && "border-violet-600/50 text-violet-300")}
+            className={cn("gap-2", active && "border-accent/50 text-accent")}
           >
             <SlidersHorizontal className="h-4 w-4" />
             Filters
             {active && (
-              <Badge className="bg-violet-600/30 text-violet-200">
-                {[
-                  filters.genres.length,
-                  filters.decades.length,
-                  filters.deepCutOnly ? 1 : 0,
-                  filters.minRating ? 1 : 0,
-                  filters.sort !== "best_match" ? 1 : 0,
-                  filters.search ? 1 : 0,
-                ].reduce((a, b) => a + b, 0)}
-              </Badge>
+              <Badge variant="accent">{activeCount}</Badge>
             )}
-            <ChevronDown
-              className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")}
-            />
           </Button>
           {active && (
-            <Button variant="ghost" size="sm" onClick={reset} className="gap-1 text-zinc-400">
+            <Button variant="ghost" size="sm" onClick={reset} className="gap-1 text-muted">
               <X className="h-4 w-4" />
               Clear
             </Button>
@@ -141,15 +136,15 @@ export function DiscoverFilters({
         </div>
       </div>
 
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-muted">
         Showing {resultCount} of {recommendations.length} albums
       </p>
 
       {expanded && (
-        <div className="space-y-5 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="space-y-5 rounded-xl border border-border bg-surface p-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
                 Sort by
               </span>
               <Select
@@ -167,7 +162,7 @@ export function DiscoverFilters({
             </label>
 
             <label className="block space-y-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
                 Min community rating
               </span>
               <Select
@@ -190,7 +185,7 @@ export function DiscoverFilters({
 
           {availableGenres.length > 0 && (
             <div className="space-y-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
                 Genre
               </span>
               <div className="flex flex-wrap gap-2">
@@ -208,7 +203,7 @@ export function DiscoverFilters({
           )}
 
           <div className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
               Decade
             </span>
             <div className="flex flex-wrap gap-2">
@@ -224,7 +219,7 @@ export function DiscoverFilters({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-zinc-800 px-3 py-2.5">
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
             <Checkbox
               checked={filters.deepCutOnly}
               onChange={(e) =>
@@ -232,8 +227,8 @@ export function DiscoverFilters({
               }
             />
             <div>
-              <p className="text-sm font-medium text-zinc-200">Deep cuts only</p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-sm font-medium text-foreground">Deep cuts only</p>
+              <p className="text-xs text-muted">
                 Lesser-known pressings and lower-profile picks
               </p>
             </div>

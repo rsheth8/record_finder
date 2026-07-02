@@ -28,21 +28,21 @@ export default async function ReservationPage({
 
   return (
     <div className="mx-auto max-w-lg space-y-6 py-8">
-      <div className="flex items-center gap-3 text-emerald-400">
+      <div className="flex items-center gap-3 text-success">
         <CheckCircle2 className="h-8 w-8" />
-        <h1 className="text-2xl font-bold text-zinc-50">Record reserved</h1>
+        <h1 className="font-display text-2xl font-bold text-foreground">Record reserved</h1>
       </div>
 
-      <Card>
+      <Card glow>
         <CardTitle>{reservation.title}</CardTitle>
         <CardDescription className="mt-1">{reservation.artist}</CardDescription>
-        <p className="mt-4 text-sm text-zinc-400">
+        <p className="mt-4 text-sm text-muted">
           Spent {formatCredits(reservation.creditsSpent)} · Remaining balance:{" "}
           {formatCredits(balance)}
         </p>
       </Card>
 
-      <p className="text-sm text-zinc-400">
+      <p className="text-sm text-muted">
         Your credits reserve this pick in our concierge queue. Complete the
         physical purchase on Discogs when you are ready — we have saved this
         listing for you.

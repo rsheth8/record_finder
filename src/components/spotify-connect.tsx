@@ -13,7 +13,7 @@ export function SpotifyConnect({
 
   if (!spotifyConfigured) {
     return (
-      <p className="text-sm text-amber-400">
+      <p className="text-sm text-warning">
         Add your Spotify Client ID and Secret to <code>.env.local</code> to
         enable connection.
       </p>
@@ -41,7 +41,7 @@ export function SpotifyConnect({
   if (session) {
     return (
       <div className="flex items-center gap-3">
-        <span className="text-sm text-zinc-400">
+        <span className="text-sm text-muted">
           Connected as {session.user?.name ?? "Spotify user"}
         </span>
         <Button variant="ghost" size="sm" onClick={() => signOut()}>

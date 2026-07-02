@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Coins } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function CreditsNavLink() {
   const { data: session } = useSession();
+  const pathname = usePathname();
   const [balance, setBalance] = useState<number | null>(null);
+  const active = pathname.startsWith("/credits");
 
   useEffect(() => {
     if (!session?.user) return;
@@ -28,7 +31,9 @@ export function CreditsNavLink() {
       href="/credits"
       className={cn(
         "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors",
-        "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+        active
+          ? "bg-accent-muted text-accent"
+          : "text-muted hover:bg-surface-elevated hover:text-foreground",
       )}
     >
       <Coins className="h-4 w-4" />

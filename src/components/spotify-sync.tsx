@@ -40,7 +40,7 @@ export function SpotifySync() {
 
   if (syncState === "done") {
     return (
-      <p className="flex items-center gap-2 text-sm text-emerald-400">
+      <p className="flex items-center gap-2 text-sm text-success">
         <CheckCircle2 className="h-4 w-4" />
         Spotify taste profile synced.
       </p>
@@ -48,7 +48,7 @@ export function SpotifySync() {
   }
 
   return (
-    <p className="text-sm text-amber-400">
+    <p className="text-sm text-warning">
       Could not sync Spotify — check your API credentials.
     </p>
   );

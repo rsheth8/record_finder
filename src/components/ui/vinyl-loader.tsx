@@ -22,7 +22,7 @@ function VinylDisc({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
           labelClass,
         )}
       />
-      <div className="vinyl-loader-spindle absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-300" />
+      <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/80" />
     </div>
   );
 }
@@ -54,7 +54,7 @@ function CyclingMessage({
   return (
     <p
       className={cn(
-        "text-sm text-zinc-400 transition-opacity duration-300",
+        "text-sm text-muted transition-opacity duration-300",
         visible ? "opacity-100" : "opacity-0",
         className,
       )}
@@ -89,11 +89,11 @@ export function VinylLoader({
       aria-busy="true"
     >
       <div className="relative">
-        <div className="vinyl-loader-glow absolute inset-0 scale-150 rounded-full bg-violet-600/20 blur-2xl" />
+        <div className="vinyl-loader-glow absolute inset-0 scale-150 rounded-full blur-2xl" />
         <VinylDisc size={size} />
       </div>
       <div className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-violet-400/80">
+        <p className="text-xs font-medium uppercase tracking-[0.2em] text-accent/80">
           Record Finder
         </p>
         <CyclingMessage
@@ -106,7 +106,7 @@ export function VinylLoader({
 
   if (variant === "overlay") {
     return (
-      <div className="vinyl-loader-overlay fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/90 backdrop-blur-sm">
+      <div className="vinyl-loader-overlay fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-overlay)] backdrop-blur-sm">
         {content}
       </div>
     );
@@ -116,7 +116,7 @@ export function VinylLoader({
     return (
       <div className="flex items-center gap-3 py-2">
         <VinylDisc size="sm" />
-        <CyclingMessage messages={messages} className="text-xs text-zinc-400" />
+        <CyclingMessage messages={messages} className="text-xs text-muted" />
       </div>
     );
   }

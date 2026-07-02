@@ -6,11 +6,19 @@ export type RecommendationRow = {
   items: Recommendation[];
 };
 
+const MIN_ROW_ITEMS = 3;
+
 function matchesGenre(rec: Recommendation, genre: string): boolean {
   const g = genre.toLowerCase();
   return rec.genres.some(
     (rg) => rg.toLowerCase().includes(g) || g.includes(rg.toLowerCase()),
   );
+}
+
+function isDeepCutCandidate(rec: Recommendation): boolean {
+  if (rec.score < 40) return true;
+  if (rec.ratingCount !== null && rec.ratingCount < 50) return true;
+  return false;
 }
 
 function getTopGenres(recommendations: Recommendation[], limit = 4): string[] {
@@ -61,8 +69,8 @@ export function groupRecommendations(
       .filter((r) => !used.has(r.discogsReleaseId) && matchesGenre(r, genre))
       .sort((a, b) => b.score - a.score);
 
-    if (items.length >= 1) {
-      items.forEach((r) => used.add(r.discogsReleaseId));
+    if (items.length >= MIN_ROW_ITEMS) {
+      items.slice(0, 12).forEach((r) => used.add(r.discogsReleaseId));
       rows.push({
         id: `genre-${genre}`,
         title: genre,
@@ -82,8 +90,8 @@ export function groupRecommendations(
       })
       .sort((a, b) => b.score - a.score);
 
-    if (items.length >= 1) {
-      items.forEach((r) => used.add(r.discogsReleaseId));
+    if (items.length >= MIN_ROW_ITEMS) {
+      items.slice(0, 12).forEach((r) => used.add(r.discogsReleaseId));
       rows.push({
         id: `decade-${decade}`,
         title: `${decade} essentials`,
@@ -93,11 +101,11 @@ export function groupRecommendations(
   }
 
   const deepCuts = recommendations
-    .filter((r) => !used.has(r.discogsReleaseId) && (r.score < 40 || r.ratingCount === null))
+    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCutCandidate(r))
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 
-  if (deepCuts.length >= 1) {
+  if (deepCuts.length >= MIN_ROW_ITEMS) {
     deepCuts.forEach((r) => used.add(r.discogsReleaseId));
     rows.push({ id: "deep-cuts", title: "Deep cuts", items: deepCuts });
   }
@@ -107,14 +115,14 @@ export function groupRecommendations(
     .sort((a, b) => b.score - a.score);
 
   if (remaining.length > 0) {
-    rows.push({ id: "more", title: "More to explore", items: remaining.slice(0, 12) });
+    rows.push({ id: "more", title: "More to explore", items: remaining });
   }
 
   if (rows.length === 0) {
     rows.push({
       id: "all",
       title: "Recommended for you",
-      items: recommendations.slice(0, 12),
+      items: recommendations,
     });
   }
 

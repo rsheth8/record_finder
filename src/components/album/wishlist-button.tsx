@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { MarketplaceBadge } from "@/components/album/marketplace-badge";
 import { Heart } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function WishlistButton({
   discogsReleaseId,
@@ -16,6 +17,7 @@ export function WishlistButton({
   coverUrl,
   year,
   initialInWishlist,
+  compact = false,
 }: {
   discogsReleaseId: number;
   title: string;
@@ -23,6 +25,7 @@ export function WishlistButton({
   coverUrl: string | null;
   year: number | null;
   initialInWishlist: boolean;
+  compact?: boolean;
 }) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -66,12 +69,13 @@ export function WishlistButton({
   return (
     <Button
       variant={inWishlist ? "primary" : "outline"}
+      size={compact ? "sm" : "md"}
       onClick={toggle}
       disabled={loading}
       className="gap-2"
     >
-      <Heart className={`h-4 w-4 ${inWishlist ? "fill-current" : ""}`} />
-      {inWishlist ? "In Wishlist" : "Add to Wishlist"}
+      <Heart className={cn("h-4 w-4", inWishlist && "fill-current")} />
+      {!compact && (inWishlist ? "In Wishlist" : "Add to Wishlist")}
     </Button>
   );
 }
@@ -114,8 +118,8 @@ export function WishlistCard({
   };
 }) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-zinc-800">
+    <div className="flex items-center gap-4 rounded-xl border border-border bg-surface/60 p-4 transition-colors hover:border-accent/30">
+      <div className="poster-sleeve relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-surface-elevated">
         {item.coverUrl ? (
           <Image
             src={item.coverUrl}
@@ -129,11 +133,11 @@ export function WishlistCard({
       <div className="min-w-0 flex-1">
         <a
           href={`/album/${item.discogsReleaseId}`}
-          className="block truncate font-medium text-zinc-100 hover:text-violet-300"
+          className="block truncate font-medium text-foreground hover:text-accent"
         >
           {item.title}
         </a>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted">
           {item.artist}
           {item.year ? ` · ${item.year}` : ""}
         </p>

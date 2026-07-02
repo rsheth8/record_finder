@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatCredits, creditsToUsd, formatUsd } from "@/lib/commerce/pricing";
-import { Loader2, ShoppingBag } from "lucide-react";
+import { ExternalLink, Loader2, ShoppingBag } from "lucide-react";
 
 export function ReserveWithCreditsButton({
   discogsReleaseId,
@@ -16,6 +16,8 @@ export function ReserveWithCreditsButton({
   lowestPriceUsd,
   numForSale,
   signedIn,
+  discogsUrl,
+  compact = false,
 }: {
   discogsReleaseId: number;
   title: string;
@@ -24,6 +26,8 @@ export function ReserveWithCreditsButton({
   lowestPriceUsd: number | null;
   numForSale: number;
   signedIn: boolean;
+  discogsUrl?: string;
+  compact?: boolean;
 }) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -32,9 +36,7 @@ export function ReserveWithCreditsButton({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (numForSale === 0) {
-    return (
-      <p className="text-sm text-zinc-500">Not currently for sale on Discogs</p>
-    );
+    return null;
   }
 
   function startReserve() {
@@ -81,20 +83,33 @@ export function ReserveWithCreditsButton({
     }
   }
 
+  if (compact) {
+    return (
+      <Button variant="outline" size="sm" onClick={handleReserve} disabled={loading} className="gap-1.5">
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingBag className="h-4 w-4" />}
+        {formatCredits(creditCost)}
+      </Button>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      <Button onClick={startReserve} disabled={loading} className="gap-2">
-        <ShoppingBag className="h-4 w-4" />
+      <Button variant="outline" onClick={startReserve} disabled={loading} className="gap-2">
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <ShoppingBag className="h-4 w-4" />
+        )}
         Reserve for {formatCredits(creditCost)}
       </Button>
       {lowestPriceUsd && (
-        <p className="text-xs text-zinc-500">
-          ≈ {formatUsd(creditsToUsd(creditCost))} concierge fee · est. Discogs price from{" "}
-          {formatUsd(lowestPriceUsd)}
+        <p className="text-xs text-muted">
+          ≈ {formatUsd(creditsToUsd(creditCost))} concierge fee · vinyl from{" "}
+          {formatUsd(lowestPriceUsd)} on Discogs
         </p>
       )}
       {!signedIn && (
-        <p className="text-xs text-amber-400">Sign in with Spotify to earn free credits</p>
+        <p className="text-xs text-warning">Sign in with Spotify to earn free credits</p>
       )}
       {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -133,6 +148,17 @@ export function ReserveWithCreditsButton({
           </div>
         </div>
       </Modal>
+      {discogsUrl && (
+        <a
+          href={discogsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+        >
+          <ExternalLink className="h-3 w-3" />
+          Or browse all listings on Discogs
+        </a>
+      )}
     </div>
   );
 }

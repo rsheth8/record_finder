@@ -10,16 +10,31 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import {
   DEFAULT_DISCOVER_FILTERS,
   filterRecommendations,
-  hasActiveFilters,
+  hasContentFilters,
 } from "@/lib/recommendations/filter";
 import { groupRecommendations } from "@/lib/recommendations/group";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
 import { SOURCE_LABELS, type SourceError } from "@/lib/errors";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
-import { LayoutGrid, RefreshCw, Rows3, X } from "lucide-react";
+import { Disc3, LayoutGrid, RefreshCw, Rows3, ShoppingBag, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "rows" | "grid";
+
+function EmptyShelf() {
+  return (
+    <div className="flex flex-col items-center py-16 text-center">
+      <div className="relative mb-6">
+        <Disc3 className="h-16 w-16 text-muted/40" />
+        <div className="absolute -bottom-2 left-1/2 h-1 w-20 -translate-x-1/2 rounded-full bg-border" />
+      </div>
+      <p className="font-display text-lg font-semibold text-foreground">Shelf is empty</p>
+      <p className="mt-2 max-w-sm text-sm text-muted">
+        No albums match your filters. Try broadening your search or refreshing picks.
+      </p>
+    </div>
+  );
+}
 
 export function DiscoverFeed({
   recommendations: initialRecommendations,
@@ -39,6 +54,7 @@ export function DiscoverFeed({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? null);
+  const [recommendations, setRecommendations] = useState(initialRecommendations);
   const [degraded, setDegraded] = useState(initialDegraded);
   const [dismissedDegraded, setDismissedDegraded] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
@@ -57,16 +73,16 @@ export function DiscoverFeed({
   }, [needsGeneration]);
 
   const filtered = useMemo(
-    () => filterRecommendations(initialRecommendations, filters),
-    [initialRecommendations, filters],
+    () => filterRecommendations(recommendations, filters),
+    [recommendations, filters],
   );
 
-  const filtering = hasActiveFilters(filters);
+  const contentFiltering = hasContentFilters(filters);
 
   const rows = useMemo(() => {
-    if (filtering || viewMode === "grid") return [];
+    if (contentFiltering || viewMode === "grid") return [];
     return groupRecommendations(filtered, quizGenres, quizDecades);
-  }, [filtered, quizGenres, quizDecades, filtering, viewMode]);
+  }, [filtered, quizGenres, quizDecades, contentFiltering, viewMode]);
 
   async function refresh() {
     setLoading(true);
@@ -82,7 +98,9 @@ export function DiscoverFeed({
         return;
       }
 
-      if (!data.recommendations?.length) {
+      if (data.recommendations?.length) {
+        setRecommendations(data.recommendations);
+      } else {
         setError("No vinyl matches found. Try adjusting your quiz preferences.");
       }
 
@@ -95,31 +113,62 @@ export function DiscoverFeed({
     }
   }
 
-  const filteredRowTitle = filtering
+  const filteredRowTitle = contentFiltering
     ? filters.search.trim()
       ? `Results for "${filters.search.trim()}"`
       : "Filtered picks"
     : "All albums";
 
+  const featuredRow = rows[0];
+  const remainingRows = rows.slice(1);
+
   return (
-    <div className="space-y-6">
-      <DiscoverFilters
-        recommendations={initialRecommendations}
-        filters={filters}
-        onChange={setFilters}
-        resultCount={filtered.length}
-      />
+    <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 space-y-6">
+      <div className="mx-4 rounded-xl border border-border bg-surface/60 p-4 noir-glass sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <p className="text-xs font-medium uppercase tracking-wide text-accent">
+          How it works
+        </p>
+        <ol className="mt-3 grid gap-3 sm:grid-cols-3">
+          {[
+            { n: 1, title: "Browse picks", desc: "Scroll rows or switch to grid view" },
+            { n: 2, title: "Open an album", desc: "See pressing info, tracks, and pricing" },
+            { n: 3, title: "Reserve on Discogs", desc: "Shop listings or reserve with credits", icon: ShoppingBag },
+          ].map((step) => (
+            <li key={step.n} className="flex gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-muted text-xs font-bold text-accent">
+                {step.n}
+              </span>
+              <div>
+                <p className="flex items-center gap-1 text-sm font-medium text-foreground">
+                  {step.icon && <step.icon className="h-3.5 w-3.5" />}
+                  {step.title}
+                </p>
+                <p className="text-xs text-muted">{step.desc}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <DiscoverFilters
+          recommendations={recommendations}
+          filters={filters}
+          onChange={setFilters}
+          resultCount={filtered.length}
+        />
+      </div>
 
       <div className="flex items-center justify-between gap-3 px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
-        <div className="flex rounded-lg border border-zinc-800 p-0.5">
+        <div className="flex rounded-lg border border-border p-0.5">
           <button
             type="button"
             onClick={() => setViewMode("rows")}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
               viewMode === "rows"
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:text-zinc-300",
+                ? "bg-surface-elevated text-foreground"
+                : "text-muted hover:text-foreground",
             )}
           >
             <Rows3 className="h-3.5 w-3.5" />
@@ -131,8 +180,8 @@ export function DiscoverFeed({
             className={cn(
               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
               viewMode === "grid"
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:text-zinc-300",
+                ? "bg-surface-elevated text-foreground"
+                : "text-muted hover:text-foreground",
             )}
           >
             <LayoutGrid className="h-3.5 w-3.5" />
@@ -153,7 +202,7 @@ export function DiscoverFeed({
       </div>
 
       {error && (
-        <div className="mx-4 rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <div className="mx-4 rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
           {error}
         </div>
       )}
@@ -183,30 +232,42 @@ export function DiscoverFeed({
         <VinylLoader variant="section" context="discover" />
       ) : filtered.length === 0 ? (
         <Card className="mx-4 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
-          <CardTitle>No matches</CardTitle>
-          <CardDescription className="mt-2">
-            {initialRecommendations.length === 0
-              ? "Complete the quiz and connect Spotify to generate picks."
-              : "Try clearing filters or broadening your search."}
-          </CardDescription>
-        </Card>
-      ) : viewMode === "grid" || filtering ? (
-        <div className="space-y-4 pb-8">
-          {!filtering && viewMode === "grid" ? (
-            <h2 className="px-4 text-lg font-semibold text-zinc-100 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
-              All albums
-            </h2>
+          {recommendations.length === 0 ? (
+            <>
+              <CardTitle>No picks yet</CardTitle>
+              <CardDescription className="mt-2">
+                Complete the quiz and connect Spotify to generate picks.
+              </CardDescription>
+            </>
           ) : (
-            <h2 className="px-4 text-lg font-semibold text-zinc-100 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
-              {filteredRowTitle}
-            </h2>
+            <EmptyShelf />
           )}
+        </Card>
+      ) : viewMode === "grid" || contentFiltering ? (
+        <div className="space-y-4 pb-8">
+          <h2 className="px-4 font-display text-lg font-semibold text-foreground sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+            {filteredRowTitle}
+          </h2>
           <DiscoverGrid items={filtered} />
         </div>
       ) : (
         <div className="space-y-12 pb-8">
-          {rows.map((row) => (
-            <CarouselRow key={row.id} title={row.title} items={row.items} />
+          {featuredRow && (
+            <CarouselRow
+              key={`featured-${featuredRow.id}`}
+              title={featuredRow.title}
+              items={featuredRow.items}
+              featured
+              rowIndex={0}
+            />
+          )}
+          {remainingRows.map((row, i) => (
+            <CarouselRow
+              key={row.id}
+              title={row.title}
+              items={row.items}
+              rowIndex={i + 1}
+            />
           ))}
         </div>
       )}

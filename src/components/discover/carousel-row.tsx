@@ -10,24 +10,41 @@ import { cn } from "@/lib/utils";
 const CONTENT_INSET = "pl-4 sm:pl-[max(1rem,calc((100vw-72rem)/2+1rem))]";
 const HEADER_INSET = cn(CONTENT_INSET, "pr-4 sm:pr-[max(1rem,calc((100vw-72rem)/2+1rem))]");
 
+const ROW_ACCENT_COLORS = [
+  "var(--color-accent)",
+  "var(--color-accent-secondary)",
+  "var(--color-success)",
+  "var(--color-warning)",
+];
+
+function getRowAccent(index: number) {
+  return ROW_ACCENT_COLORS[index % ROW_ACCENT_COLORS.length];
+}
+
 export function CarouselRow({
   title,
   items,
   bleed = true,
+  featured = false,
+  rowIndex = 0,
 }: {
   title: string;
   items: Recommendation[];
   bleed?: boolean;
+  featured?: boolean;
+  rowIndex?: number;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: false,
     align: "start",
-    dragFree: true,
+    dragFree: false,
     containScroll: "trimSnaps",
+    slidesToScroll: "auto",
   });
 
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
@@ -54,22 +71,57 @@ export function CarouselRow({
     };
   }, [emblaApi, updateScrollButtons]);
 
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit();
+  }, [emblaApi, items]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+
+    const onPointerDown = () => setIsDragging(false);
+    const onScroll = () => setIsDragging(true);
+    const onPointerUp = () => {
+      window.setTimeout(() => setIsDragging(false), 50);
+    };
+
+    emblaApi.on("pointerDown", onPointerDown);
+    emblaApi.on("scroll", onScroll);
+    emblaApi.on("pointerUp", onPointerUp);
+
+    return () => {
+      emblaApi.off("pointerDown", onPointerDown);
+      emblaApi.off("scroll", onScroll);
+      emblaApi.off("pointerUp", onPointerUp);
+    };
+  }, [emblaApi]);
+
   if (items.length === 0) return null;
 
   const showArrows = canScrollPrev || canScrollNext;
+  const cardWidth = featured
+    ? "w-[180px] sm:w-[220px] md:w-[250px] lg:w-[280px]"
+    : "w-[140px] sm:w-[160px] md:w-[175px] lg:w-[190px]";
 
   return (
     <section
-      className="carousel-row group/row relative pb-2"
+      className={cn("carousel-row group/row relative pb-2", featured && "pb-4")}
+      aria-label={title || "Album carousel"}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {title ? (
         <div className={cn("mb-4 flex items-end justify-between gap-4", bleed && HEADER_INSET)}>
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-100 sm:text-xl">
-            {title}
-          </h2>
-          <span className="text-xs text-zinc-500">{items.length} albums</span>
+          <div className="flex items-center gap-3">
+            <span
+              className="row-accent-line shrink-0"
+              style={{ background: getRowAccent(rowIndex) }}
+            />
+            <h2 className="font-display text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+              {title}
+            </h2>
+          </div>
+          <span className="text-xs text-muted">{items.length} albums</span>
         </div>
       ) : null}
 
@@ -81,9 +133,9 @@ export function CarouselRow({
             aria-label={`Scroll ${title || "albums"} left`}
             className={cn(
               "absolute top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
-              "border border-white/15 bg-zinc-950/85 text-white shadow-xl backdrop-blur-md",
-              "transition-all duration-200 hover:scale-105 hover:bg-zinc-900",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500",
+              "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
+              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
               bleed ? "left-1 sm:left-[max(0.25rem,calc((100vw-72rem)/2))]" : "left-1",
             )}
@@ -99,9 +151,9 @@ export function CarouselRow({
             aria-label={`Scroll ${title || "albums"} right`}
             className={cn(
               "absolute top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
-              "border border-white/15 bg-zinc-950/85 text-white shadow-xl backdrop-blur-md",
-              "transition-all duration-200 hover:scale-105 hover:bg-zinc-900",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500",
+              "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
+              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
               bleed ? "right-2 sm:right-4" : "right-1",
             )}
@@ -112,11 +164,11 @@ export function CarouselRow({
 
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-zinc-950 to-transparent sm:w-14",
+            "pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-background to-transparent sm:w-14",
             bleed && "sm:left-[max(0px,calc((100vw-72rem)/2))]",
           )}
         />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-zinc-950 to-transparent sm:w-16" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-background to-transparent sm:w-16" />
 
         <div
           ref={emblaRef}
@@ -126,12 +178,15 @@ export function CarouselRow({
             "cursor-grab active:cursor-grabbing",
           )}
         >
-          <div className="flex gap-3 sm:gap-4">
+          <div className="flex touch-pan-y gap-3 sm:gap-4">
             {items.map((rec) => (
               <PosterCard
                 key={rec.discogsReleaseId}
                 rec={rec}
-                className="w-[140px] sm:w-[160px] md:w-[175px] lg:w-[190px]"
+                variant="carousel"
+                isDragging={isDragging}
+                featured={featured}
+                className={cardWidth}
               />
             ))}
           </div>

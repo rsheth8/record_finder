@@ -71,6 +71,13 @@ export interface SpotifyAlbum {
   spotifyUrl: string;
 }
 
+export interface RecommendationMarketplace {
+  lowestPrice: number | null;
+  currency: string;
+  numForSale: number;
+  discogsUrl: string;
+}
+
 export interface Recommendation {
   discogsReleaseId: number;
   title: string;
@@ -89,6 +96,7 @@ export interface Recommendation {
   spotifyUrl: string | null;
   score: number;
   reasons: string[];
+  marketplace?: RecommendationMarketplace;
 }
 
 export interface DiscogsRelease {

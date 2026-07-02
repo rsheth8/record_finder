@@ -48,7 +48,9 @@ function matchesDecade(rec: Recommendation, decade: QuizDecade): boolean {
 }
 
 function isDeepCut(rec: Recommendation): boolean {
-  return rec.score < 40 || rec.ratingCount === null;
+  if (rec.score < 40) return true;
+  if (rec.ratingCount !== null && rec.ratingCount < 50) return true;
+  return false;
 }
 
 export function filterRecommendations(
@@ -115,13 +117,17 @@ export function sortRecommendations(
   }
 }
 
-export function hasActiveFilters(filters: DiscoverFilterState): boolean {
+/** Filters that narrow the result set (excludes sort-only changes). */
+export function hasContentFilters(filters: DiscoverFilterState): boolean {
   return (
     filters.search.trim().length > 0 ||
     filters.genres.length > 0 ||
     filters.decades.length > 0 ||
     filters.deepCutOnly ||
-    filters.minRating !== null ||
-    filters.sort !== "best_match"
+    filters.minRating !== null
   );
+}
+
+export function hasActiveFilters(filters: DiscoverFilterState): boolean {
+  return hasContentFilters(filters) || filters.sort !== "best_match";
 }

@@ -7,8 +7,8 @@ import type { Recommendation } from "@/lib/types";
 export function RecommendationCard({ rec }: { rec: Recommendation }) {
   return (
     <Link href={`/album/${rec.discogsReleaseId}`}>
-      <Card className="group flex gap-4 transition-colors hover:border-violet-600/50 hover:bg-zinc-900">
-        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-800">
+      <Card className="group flex gap-4 transition-colors hover:border-accent/50">
+        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-surface-elevated">
           {rec.coverUrl ? (
             <Image
               src={rec.coverUrl}
@@ -18,13 +18,13 @@ export function RecommendationCard({ rec }: { rec: Recommendation }) {
               unoptimized
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+            <div className="flex h-full items-center justify-center text-xs text-muted">
               No art
             </div>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <CardTitle className="truncate group-hover:text-violet-300">
+          <CardTitle className="truncate group-hover:text-accent">
             {rec.title}
           </CardTitle>
           <CardDescription className="mt-1">
@@ -37,7 +37,7 @@ export function RecommendationCard({ rec }: { rec: Recommendation }) {
             ))}
           </div>
           {rec.reasons.length > 0 && (
-            <p className="mt-2 line-clamp-2 text-xs text-zinc-500">
+            <p className="mt-2 line-clamp-2 text-xs text-muted">
               {rec.reasons[0]}
             </p>
           )}

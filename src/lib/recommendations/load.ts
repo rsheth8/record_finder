@@ -20,6 +20,7 @@ import {
   collectSimilarArtistNames,
 } from "@/lib/recommendations/engine";
 import { toSourceError, type SourceError } from "@/lib/errors";
+import { enrichRecommendations } from "@/lib/recommendations/enrich";
 import type { Recommendation } from "@/lib/types";
 
 /** How long a cached Spotify listening snapshot stays fresh before we refetch. */
@@ -45,6 +46,12 @@ export async function loadRecommendations(
   if (!refresh) {
     const cached = await getCachedRecommendations(userId);
     if (cached && cached.length > 0) {
+      const needsEnrichment = cached.some((r) => !r.marketplace);
+      if (needsEnrichment) {
+        const enriched = await enrichRecommendations(cached);
+        await cacheRecommendations(userId, enriched);
+        return { recommendations: enriched, degraded: [] };
+      }
       return { recommendations: cached, degraded: [] };
     }
   } else {
@@ -144,6 +151,7 @@ export async function loadRecommendations(
     }
 
     if (recommendations.length > 0) {
+      recommendations = await enrichRecommendations(recommendations);
       await cacheRecommendations(userId, recommendations);
     } else {
       degraded.push(

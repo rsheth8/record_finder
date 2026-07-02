@@ -73,7 +73,7 @@ export default async function HomePage() {
                   <p className="mt-1 text-sm text-muted">
                     {quizDone
                       ? "Complete — retake anytime to refine picks."
-                      : "5 quick questions about genres, eras, and how you listen. No sign-in required."}
+                      : "7 quick steps on genres, eras, moods, and how you listen. No sign-in required."}
                   </p>
                   {!quizDone && (
                     <Link href="/quiz" className="mt-3 inline-block">

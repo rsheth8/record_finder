@@ -1,15 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import dynamic from "next/dynamic";
 import gsap from "gsap";
 import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-
-const NoirScene = dynamic(
-  () => import("@/components/noir/noir-scene").then((m) => m.NoirScene),
-  { ssr: false },
-);
 
 export function NoirAtmosphere() {
   const { theme } = useTheme();
@@ -42,11 +36,7 @@ export function NoirAtmosphere() {
 
   return (
     <div className="noir-atmosphere" aria-hidden>
-      {!reducedMotion && (
-        <div className="noir-atmosphere__canvas">
-          <NoirScene />
-        </div>
-      )}
+      <div className="noir-atmosphere__beam" />
 
       <div
         ref={orb1Ref}

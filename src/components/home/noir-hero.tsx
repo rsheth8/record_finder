@@ -79,6 +79,16 @@ export function NoirHero({
 
       {isNoir && <div ref={glowRef} className="noir-hero__spotlight" />}
 
+      {isNoir && (
+        <div className="noir-vinyl-wrap hidden md:block" aria-hidden>
+          <div className="noir-vinyl">
+            <div className="noir-vinyl__grooves" />
+            <div className="noir-vinyl__label" />
+          </div>
+          <div className="noir-vinyl__sheen" />
+        </div>
+      )}
+
       <div className={cn("relative px-4 py-14 md:px-10 md:py-20", isNoir && "noir-hero__content")}>
         <motion.div
           className="mb-6 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent-muted px-4 py-1.5 text-xs font-medium uppercase tracking-widest text-accent"

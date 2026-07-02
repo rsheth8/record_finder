@@ -16,6 +16,15 @@ export const discogsThrottle = createRateLimiter(1000);
 
 function discogsHeaders(): HeadersInit {
   const token = process.env.DISCOGS_TOKEN;
+  if (!token) {
+    // Without this guard we'd send `Discogs token=undefined` and get a cryptic
+    // 401 "Invalid consumer token" from the API. Fail with an actionable message.
+    throw new Error(
+      "DISCOGS_TOKEN is not set. Create a personal access token at " +
+        "https://www.discogs.com/settings/developers and add it to .env.local, " +
+        "then restart the dev server.",
+    );
+  }
   return {
     Authorization: `Discogs token=${token}`,
     "User-Agent": "RecordFinder/1.0",

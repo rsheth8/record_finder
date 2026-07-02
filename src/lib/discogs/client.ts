@@ -7,6 +7,7 @@ import {
   splitDiscogsTitle,
   type DiscogsSearchResult,
 } from "@/lib/recommendations/match";
+import { convertToUsd, roundUsd } from "@/lib/commerce/currency";
 
 const DISCOGS_API = "https://api.discogs.com";
 
@@ -72,6 +73,36 @@ export async function searchVinylRelease(
   };
 }
 
+type DiscogsLowestPrice =
+  | number
+  | { value?: number | null; currency?: string }
+  | null
+  | undefined;
+
+/** Discogs marketplace stats used to return lowest_price as a number; it now
+ * returns { value, currency }. Accept both shapes so pricing stays numeric. */
+function parseDiscogsLowestPrice(lowestPrice: DiscogsLowestPrice): {
+  lowestPrice: number | null;
+  currency: string;
+} {
+  if (lowestPrice == null) {
+    return { lowestPrice: null, currency: "USD" };
+  }
+
+  if (typeof lowestPrice === "number") {
+    return {
+      lowestPrice: Number.isFinite(lowestPrice) ? lowestPrice : null,
+      currency: "USD",
+    };
+  }
+
+  const value = lowestPrice.value;
+  return {
+    lowestPrice: typeof value === "number" && Number.isFinite(value) ? value : null,
+    currency: lowestPrice.currency ?? "USD",
+  };
+}
+
 export async function getMarketplaceStats(releaseId: number): Promise<{
   lowestPrice: number | null;
   currency: string;
@@ -80,12 +111,16 @@ export async function getMarketplaceStats(releaseId: number): Promise<{
 } | null> {
   try {
     const data = await discogsFetch<{
-      lowest_price?: number | null;
+      lowest_price?: DiscogsLowestPrice;
       num_for_sale?: number;
     }>(`/marketplace/stats/${releaseId}`);
 
+    const { lowestPrice, currency } = parseDiscogsLowestPrice(data.lowest_price);
+    const lowestPriceUsd =
+      lowestPrice != null ? roundUsd(await convertToUsd(lowestPrice, currency)) : null;
+
     return {
-      lowestPrice: data.lowest_price ?? null,
+      lowestPrice: lowestPriceUsd,
       currency: "USD",
       numForSale: data.num_for_sale ?? 0,
       discogsUrl: `https://www.discogs.com/sell/release/${releaseId}`,

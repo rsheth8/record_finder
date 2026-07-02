@@ -11,6 +11,13 @@ const AMBER = "#f59e0b";
 const GOLD = "#fbbf24";
 const WARM = "#d97706";
 
+// Deterministic pseudo-random in [0, 1) so the spine layout stays pure during
+// render (no Math.random) and is stable across renders.
+function seeded(n: number) {
+  const x = Math.sin(n * 127.1) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 function AlbumSpineRow({ side }: { side: -1 | 1 }) {
   const ref = useRef<InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
@@ -18,9 +25,9 @@ function AlbumSpineRow({ side }: { side: -1 | 1 }) {
   const spines = useMemo(() => {
     return Array.from({ length: SPINE_COUNT }, (_, i) => ({
       z: -1.5 - (i / SPINE_COUNT) * 14,
-      height: 0.55 + Math.random() * 0.45,
-      width: 0.1 + Math.random() * 0.06,
-      hue: 0.08 + Math.random() * 0.04,
+      height: 0.55 + seeded(i * 3 + 1) * 0.45,
+      width: 0.1 + seeded(i * 3 + 2) * 0.06,
+      hue: 0.08 + seeded(i * 3 + 3) * 0.04,
     }));
   }, []);
 

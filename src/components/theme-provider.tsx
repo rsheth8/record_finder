@@ -5,7 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useState,
+  useSyncExternalStore,
 } from "react";
 import {
   DEFAULT_THEME,
@@ -25,20 +25,42 @@ function applyTheme(theme: ThemeId) {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeId>(DEFAULT_THEME);
+// localStorage-backed store so the theme reads as external state (no
+// setState-in-effect). Same-tab writes notify via an explicit listener set;
+// cross-tab writes arrive through the native "storage" event.
+const listeners = new Set<() => void>();
 
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+function readStoredTheme(): ThemeId {
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  return stored && isThemeId(stored) ? stored : DEFAULT_THEME;
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const theme = useSyncExternalStore(
+    subscribe,
+    readStoredTheme,
+    () => DEFAULT_THEME,
+  );
+
+  // Keep the DOM attribute in sync with the active theme. Pure external-system
+  // sync — no React state is set here.
   useEffect(() => {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    const initial = stored && isThemeId(stored) ? stored : DEFAULT_THEME;
-    setThemeState(initial);
-    applyTheme(initial);
-  }, []);
+    applyTheme(theme);
+  }, [theme]);
 
   const setTheme = useCallback((next: ThemeId) => {
-    setThemeState(next);
     localStorage.setItem(THEME_STORAGE_KEY, next);
     applyTheme(next);
+    listeners.forEach((l) => l());
   }, []);
 
   return (

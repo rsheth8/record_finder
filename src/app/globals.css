@@ -327,10 +327,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .carousel-row [data-embla-auto-scroll] {
-    animation: none !important;
-  }
-
   .vinyl-loader-disc {
     animation: none !important;
   }

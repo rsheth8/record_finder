@@ -5,28 +5,22 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { formatCredits, creditsToUsd, formatUsd } from "@/lib/commerce/pricing";
-import { ExternalLink, Loader2, ShoppingBag } from "lucide-react";
+import { formatCredits } from "@/lib/commerce/pricing";
+import { Loader2, ShoppingBag } from "lucide-react";
 
 export function ReserveWithCreditsButton({
   discogsReleaseId,
   title,
   artist,
   creditCost,
-  lowestPriceUsd,
   numForSale,
-  signedIn,
-  discogsUrl,
   compact = false,
 }: {
   discogsReleaseId: number;
   title: string;
   artist: string;
   creditCost: number;
-  lowestPriceUsd: number | null;
   numForSale: number;
-  signedIn: boolean;
-  discogsUrl?: string;
   compact?: boolean;
 }) {
   const router = useRouter();
@@ -141,7 +135,7 @@ export function ReserveWithCreditsButton({
   }
 
   return (
-    <div className="space-y-2">
+    <>
       <Button variant="outline" onClick={startReserve} disabled={loading} className="gap-2">
         {loading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -150,27 +144,7 @@ export function ReserveWithCreditsButton({
         )}
         Reserve for {formatCredits(creditCost)}
       </Button>
-      {lowestPriceUsd && (
-        <p className="text-xs text-muted">
-          ≈ {formatUsd(creditsToUsd(creditCost))} concierge fee · vinyl from{" "}
-          {formatUsd(lowestPriceUsd)} on Discogs
-        </p>
-      )}
-      {!signedIn && (
-        <p className="text-xs text-warning">Sign in with Spotify to earn free credits</p>
-      )}
-      {error && <p className="text-xs text-error">{error}</p>}
-      {discogsUrl && (
-        <a
-          href={discogsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Or browse all listings on Discogs
-        </a>
-      )}
+      {error && <p className="basis-full text-xs text-error">{error}</p>}
 
       <Modal
         open={confirmOpen}
@@ -207,6 +181,6 @@ export function ReserveWithCreditsButton({
           </div>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }

@@ -8,7 +8,7 @@ import { formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { ExternalLink, ShoppingBag, Star } from "lucide-react";
+import { Disc3, ExternalLink, ShoppingBag, Star } from "lucide-react";
 
 export function PosterCard({
   rec,
@@ -72,16 +72,17 @@ export function PosterCard({
               sizes={featured ? "(max-width: 640px) 200px, 280px" : "(max-width: 640px) 132px, 188px"}
             />
           ) : (
-            <div className="flex h-full items-center justify-center bg-surface-elevated text-xs text-muted">
-              No art
+            <div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-elevated to-surface text-muted">
+              <Disc3 className="h-10 w-10 opacity-40" />
+              <span className="text-[11px] font-medium">No cover art</span>
             </div>
           )}
 
           <div className="absolute inset-0 rounded-lg ring-1 ring-inset ring-foreground/10" />
 
           {priceLabel && (
-            <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-success/90 px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-inverse)] shadow-sm backdrop-blur-sm">
-              <ShoppingBag className="h-3 w-3" />
+            <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-foreground shadow-sm backdrop-blur-sm">
+              <ShoppingBag className="h-3 w-3 text-success" />
               {priceLabel}
             </div>
           )}

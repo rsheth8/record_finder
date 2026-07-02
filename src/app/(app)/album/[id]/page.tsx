@@ -1,13 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRelease } from "@/lib/discogs/client";
-import { isInWishlist, getReleaseFeedback } from "@/lib/db/queries";
+import { getRelease, getSimilarReleases } from "@/lib/discogs/client";
+import {
+  isInWishlist,
+  getReleaseFeedback,
+  getCachedRecommendations,
+} from "@/lib/db/queries";
 import { WishlistButton } from "@/components/album/wishlist-button";
 import { FeedbackButtons } from "@/components/album/feedback-buttons";
+import { CarouselRow } from "@/components/discover/carousel-row";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/identity";
 import { searchSpotifyAlbum } from "@/lib/spotify/client";
 import { usdToCredits, formatUsd } from "@/lib/commerce/pricing";
 import { ReserveWithCreditsButton } from "@/components/album/reserve-with-credits-button";
@@ -47,6 +53,14 @@ export default async function AlbumPage({
     : null;
   const marketplace = release.marketplace;
   const creditCost = usdToCredits(marketplace?.lowestPrice ?? 5);
+
+  // Transparency: if this release is in the visitor's current picks, surface the
+  // reasons it was recommended. And a cheap "more like this" row by style/genre.
+  const userId = await getCurrentUserId();
+  const cachedRecs = userId ? (await getCachedRecommendations(userId)) ?? [] : [];
+  const recReasons =
+    cachedRecs.find((r) => r.discogsReleaseId === releaseId)?.reasons ?? [];
+  const similar = await getSimilarReleases(release).catch(() => []);
 
   return (
     <div className="space-y-8">
@@ -149,6 +163,20 @@ export default async function AlbumPage({
         </div>
       </div>
 
+      {recReasons.length > 0 && (
+        <Card className="border-violet-800/40 bg-violet-950/10">
+          <CardTitle>Why we recommended this</CardTitle>
+          <ul className="mt-3 space-y-1.5">
+            {recReasons.map((reason) => (
+              <li key={reason} className="flex items-start gap-2 text-sm text-zinc-300">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+                {reason}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {release.formats.length > 0 && (
         <Card>
           <CardTitle>Pressing info</CardTitle>
@@ -178,6 +206,13 @@ export default async function AlbumPage({
             ))}
           </ol>
         </Card>
+      )}
+
+      {similar.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-zinc-100">More like this</h2>
+          <CarouselRow title="" items={similar} bleed={false} />
+        </section>
       )}
     </div>
   );

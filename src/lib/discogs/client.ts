@@ -203,3 +203,46 @@ export async function browseByGenreDecade(
     };
   });
 }
+
+/** "More like this" for an album page: other popular vinyl sharing the release's
+ * most specific style (falling back to genre), excluding the album itself. One
+ * cheap Discogs search — safe to call inline on the album page. */
+export async function getSimilarReleases(
+  release: Pick<DiscogsRelease, "id" | "genres" | "styles">,
+  limit = 12,
+): Promise<Recommendation[]> {
+  const seed = release.styles[0] ?? release.genres[0];
+  if (!seed) return [];
+
+  const q = encodeURIComponent(seed);
+  const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
+    `/database/search?q=${q}&type=release&format=Vinyl&per_page=${limit + 8}&sort=want`,
+  );
+
+  const seen = new Set<number>([release.id]);
+  const results: Recommendation[] = [];
+  for (const r of data.results ?? []) {
+    if (seen.has(r.id) || !r.cover_image) continue;
+    seen.add(r.id);
+    const parsed = splitDiscogsTitle(r.title);
+    results.push({
+      discogsReleaseId: r.id,
+      title: parsed.title || r.title,
+      artist: parsed.artist,
+      year: r.year ? parseInt(r.year, 10) : null,
+      coverUrl: r.cover_image ?? null,
+      genres: [...(r.genre ?? []), ...(r.style ?? [])],
+      formats: r.format ?? [],
+      communityRating: null,
+      ratingCount: null,
+      wantCount: r.community?.want ?? null,
+      haveCount: r.community?.have ?? null,
+      spotifyAlbumId: null,
+      spotifyUrl: null,
+      score: 0,
+      reasons: [`More ${seed} on vinyl`],
+    });
+    if (results.length >= limit) break;
+  }
+  return results;
+}

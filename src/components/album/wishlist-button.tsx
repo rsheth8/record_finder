@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { MarketplaceBadge } from "@/components/album/marketplace-badge";
 import { Heart } from "lucide-react";
 
 export function WishlistButton({
@@ -136,6 +137,9 @@ export function WishlistCard({
           {item.artist}
           {item.year ? ` · ${item.year}` : ""}
         </p>
+        <div className="mt-1">
+          <MarketplaceBadge discogsReleaseId={item.discogsReleaseId} />
+        </div>
       </div>
       <WishlistRemoveButton discogsReleaseId={item.discogsReleaseId} />
     </div>

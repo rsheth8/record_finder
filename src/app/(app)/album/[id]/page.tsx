@@ -9,7 +9,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { auth } from "@/lib/auth";
 import { searchSpotifyAlbum } from "@/lib/spotify/client";
 import { usdToCredits, formatUsd } from "@/lib/commerce/pricing";
-import { BuyWithCreditsButton } from "@/components/album/buy-with-credits-button";
+import { ReserveWithCreditsButton } from "@/components/album/reserve-with-credits-button";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,9 @@ export default async function AlbumPage({
     spotifyUrl = spotifyAlbum?.spotifyUrl ?? null;
   }
 
-  const inWishlist = await isInWishlist(releaseId);
+  const inWishlist = session?.user?.id
+    ? await isInWishlist(session.user.id, releaseId)
+    : false;
   const marketplace = release.marketplace;
   const creditCost = usdToCredits(marketplace?.lowestPrice ?? 5);
 
@@ -100,7 +102,7 @@ export default async function AlbumPage({
           )}
 
           <div className="flex flex-wrap items-start gap-3">
-            <BuyWithCreditsButton
+            <ReserveWithCreditsButton
               discogsReleaseId={releaseId}
               title={release.title}
               artist={release.artist}

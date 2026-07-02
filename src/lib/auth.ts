@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Spotify from "next-auth/providers/spotify";
+import type { JWT } from "next-auth/jwt";
 
 function ensureAuthUrl() {
   if (process.env.AUTH_URL) return;
@@ -19,6 +20,42 @@ ensureAuthUrl();
 const spotifyConfigured =
   Boolean(process.env.SPOTIFY_CLIENT_ID) &&
   Boolean(process.env.SPOTIFY_CLIENT_SECRET);
+
+async function refreshSpotifyToken(token: JWT): Promise<JWT> {
+  try {
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(
+          `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`,
+        ).toString("base64")}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: token.refreshToken as string,
+      }),
+    });
+
+    if (!res.ok) throw new Error("Spotify token refresh failed");
+
+    const data = (await res.json()) as {
+      access_token: string;
+      expires_in: number;
+      refresh_token?: string;
+    };
+
+    return {
+      ...token,
+      accessToken: data.access_token,
+      expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
+      refreshToken: data.refresh_token ?? token.refreshToken,
+      error: undefined,
+    };
+  } catch {
+    return { ...token, error: "RefreshAccessTokenError" };
+  }
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -44,11 +81,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        return token;
       }
-      return token;
+
+      if (!token.refreshToken) return token;
+
+      // Refresh a minute before actual expiry to avoid races with in-flight requests.
+      if (token.expiresAt && Date.now() / 1000 < token.expiresAt - 60) {
+        return token;
+      }
+
+      return refreshSpotifyToken(token);
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string | undefined;
+      session.error = token.error as "RefreshAccessTokenError" | undefined;
+      if (token.sub) session.user.id = token.sub;
       return session;
     },
   },

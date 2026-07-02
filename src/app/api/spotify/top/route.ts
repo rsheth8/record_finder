@@ -12,11 +12,11 @@ import {
 
 export async function GET() {
   const session = await auth();
-  if (!session?.accessToken) {
+  if (!session?.accessToken || !session.user?.id) {
     return NextResponse.json({ error: "Not connected to Spotify" }, { status: 401 });
   }
 
-  const cached = await getSpotifySnapshot();
+  const cached = await getSpotifySnapshot(session.user.id);
   const oneHourAgo = Date.now() - 60 * 60 * 1000;
   if (cached && cached.fetchedAt.getTime() > oneHourAgo) {
     return NextResponse.json(cached);
@@ -30,7 +30,7 @@ export async function GET() {
     const topGenres = deriveTopGenres(topArtists);
 
     const snapshot = { topArtists, topAlbums, topGenres, fetchedAt: new Date() };
-    await saveSpotifySnapshot({ topArtists, topAlbums, topGenres });
+    await saveSpotifySnapshot(session.user.id, { topArtists, topAlbums, topGenres });
 
     return NextResponse.json(snapshot);
   } catch (error) {

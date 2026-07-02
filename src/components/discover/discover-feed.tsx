@@ -14,8 +14,9 @@ import {
 } from "@/lib/recommendations/filter";
 import { groupRecommendations } from "@/lib/recommendations/group";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import { SOURCE_LABELS, type SourceError } from "@/lib/errors";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
-import { LayoutGrid, RefreshCw, Rows3 } from "lucide-react";
+import { LayoutGrid, RefreshCw, Rows3, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "rows" | "grid";
@@ -25,15 +26,19 @@ export function DiscoverFeed({
   quizGenres = [],
   quizDecades = [],
   error: initialError,
+  degraded: initialDegraded = [],
 }: {
   recommendations: Recommendation[];
   quizGenres?: QuizGenre[];
   quizDecades?: QuizDecade[];
   error?: string | null;
+  degraded?: SourceError[];
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError ?? null);
+  const [degraded, setDegraded] = useState(initialDegraded);
+  const [dismissedDegraded, setDismissedDegraded] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
 
@@ -52,6 +57,7 @@ export function DiscoverFeed({
   async function refresh() {
     setLoading(true);
     setError(null);
+    setDismissedDegraded(false);
 
     try {
       const res = await fetch("/api/recommendations", { method: "POST" });
@@ -66,6 +72,7 @@ export function DiscoverFeed({
         setError("No vinyl matches found. Try adjusting your quiz preferences.");
       }
 
+      setDegraded(data.degraded ?? []);
       router.refresh();
     } catch {
       setError("Something went wrong. Check your API keys and try again.");
@@ -134,6 +141,27 @@ export function DiscoverFeed({
       {error && (
         <div className="mx-4 rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
           {error}
+        </div>
+      )}
+
+      {!dismissedDegraded && degraded.length > 0 && (
+        <div className="mx-4 flex items-start gap-3 rounded-lg border border-amber-900/50 bg-amber-950/20 p-4 text-sm text-amber-200 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+          <div className="flex-1 space-y-1">
+            {degraded.map((d, i) => (
+              <p key={i}>
+                <span className="font-medium">{SOURCE_LABELS[d.source]}:</span>{" "}
+                {d.message}
+              </p>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setDismissedDegraded(true)}
+            className="text-amber-400/70 hover:text-amber-200"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 

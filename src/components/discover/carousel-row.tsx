@@ -42,7 +42,7 @@ export function CarouselRow({
   useEffect(() => {
     if (!emblaApi) return;
 
-    updateScrollButtons();
+    queueMicrotask(updateScrollButtons);
     emblaApi.on("select", updateScrollButtons);
     emblaApi.on("reInit", updateScrollButtons);
     emblaApi.on("resize", updateScrollButtons);

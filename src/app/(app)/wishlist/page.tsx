@@ -2,12 +2,24 @@ import Link from "next/link";
 import { getWishlist } from "@/lib/db/queries";
 import { WishlistCard } from "@/components/album/wishlist-button";
 import { Button } from "@/components/ui/button";
+import { SignInPrompt } from "@/components/auth/sign-in-prompt";
+import { auth } from "@/lib/auth";
 import { Heart } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function WishlistPage() {
-  const items = await getWishlist();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return (
+      <SignInPrompt
+        title="Connect Spotify to see your wishlist"
+        description="Sign in to save and view records you're considering."
+      />
+    );
+  }
+
+  const items = await getWishlist(session.user.id);
 
   return (
     <div className="space-y-6">

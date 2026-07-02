@@ -13,8 +13,11 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await auth();
-  const profile = await getTasteProfile();
-  const recommendations = (await getCachedRecommendations()) ?? [];
+  const userId = session?.user?.id;
+  const profile = userId ? await getTasteProfile(userId) : null;
+  const recommendations = userId
+    ? ((await getCachedRecommendations(userId)) ?? [])
+    : [];
   const topPicks = [...recommendations]
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);

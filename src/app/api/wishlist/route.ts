@@ -1,22 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import {
   getWishlist,
   addToWishlist,
   removeFromWishlist,
 } from "@/lib/db/queries";
+import { addWishlistSchema } from "@/lib/validation/wishlist";
 
 export async function GET() {
-  return NextResponse.json(await getWishlist());
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
+  return NextResponse.json(await getWishlist(session.user.id));
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-
-  if (!body.discogsReleaseId || !body.title || !body.artist) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
 
-  await addToWishlist({
+  const parsed = addWishlistSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid request body", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+  const body = parsed.data;
+
+  await addToWishlist(session.user.id, {
     discogsReleaseId: body.discogsReleaseId,
     title: body.title,
     artist: body.artist,
@@ -25,10 +39,15 @@ export async function POST(request: NextRequest) {
     notes: body.notes ?? "",
   });
 
-  return NextResponse.json(await getWishlist());
+  return NextResponse.json(await getWishlist(session.user.id));
 }
 
 export async function DELETE(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
+
   const { searchParams } = request.nextUrl;
   const id = searchParams.get("discogsReleaseId");
 
@@ -36,6 +55,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Missing discogsReleaseId" }, { status: 400 });
   }
 
-  await removeFromWishlist(parseInt(id, 10));
-  return NextResponse.json(await getWishlist());
+  await removeFromWishlist(session.user.id, parseInt(id, 10));
+  return NextResponse.json(await getWishlist(session.user.id));
 }

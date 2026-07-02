@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { getRelease } from "@/lib/discogs/client";
 import { isInWishlist } from "@/lib/db/queries";
 
@@ -26,9 +27,14 @@ export async function GET(
       return NextResponse.json({ error: "Release not found" }, { status: 404 });
     }
 
+    const session = await auth();
+    const inWishlist = session?.user?.id
+      ? await isInWishlist(session.user.id, releaseId)
+      : false;
+
     return NextResponse.json({
       ...release,
-      inWishlist: await isInWishlist(releaseId),
+      inWishlist,
     });
   } catch (error) {
     return NextResponse.json(

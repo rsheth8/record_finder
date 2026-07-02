@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getCreditBalance, getOrder } from "@/lib/db/queries";
+import { getCreditBalance, getReservation } from "@/lib/db/queries";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { formatCredits } from "@/lib/commerce/pricing";
@@ -9,7 +9,7 @@ import { ExternalLink, CheckCircle2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrderPage({
+export default async function ReservationPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -18,11 +18,11 @@ export default async function OrderPage({
   if (!session?.user?.id) redirect("/credits");
 
   const { id } = await params;
-  const orderId = parseInt(id, 10);
-  if (isNaN(orderId)) notFound();
+  const reservationId = parseInt(id, 10);
+  if (isNaN(reservationId)) notFound();
 
-  const order = await getOrder(orderId, session.user.id);
-  if (!order) notFound();
+  const reservation = await getReservation(reservationId, session.user.id);
+  if (!reservation) notFound();
 
   const balance = await getCreditBalance(session.user.id);
 
@@ -34,10 +34,10 @@ export default async function OrderPage({
       </div>
 
       <Card>
-        <CardTitle>{order.title}</CardTitle>
-        <CardDescription className="mt-1">{order.artist}</CardDescription>
+        <CardTitle>{reservation.title}</CardTitle>
+        <CardDescription className="mt-1">{reservation.artist}</CardDescription>
         <p className="mt-4 text-sm text-zinc-400">
-          Spent {formatCredits(order.creditsSpent)} · Remaining balance:{" "}
+          Spent {formatCredits(reservation.creditsSpent)} · Remaining balance:{" "}
           {formatCredits(balance)}
         </p>
       </Card>
@@ -50,7 +50,7 @@ export default async function OrderPage({
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <a
-          href={order.discogsUrl}
+          href={reservation.discogsUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex"

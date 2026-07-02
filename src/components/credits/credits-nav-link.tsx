@@ -11,10 +11,7 @@ export function CreditsNavLink() {
   const [balance, setBalance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!session?.user) {
-      setBalance(null);
-      return;
-    }
+    if (!session?.user) return;
 
     fetch("/api/credits/balance")
       .then((r) => (r.ok ? r.json() : null))
@@ -23,6 +20,8 @@ export function CreditsNavLink() {
       })
       .catch(() => setBalance(null));
   }, [session?.user]);
+
+  const displayBalance = session?.user ? balance : null;
 
   return (
     <Link
@@ -34,7 +33,7 @@ export function CreditsNavLink() {
     >
       <Coins className="h-4 w-4" />
       <span className="hidden sm:inline">
-        {balance !== null ? `${balance} cr` : "Credits"}
+        {displayBalance !== null ? `${displayBalance} cr` : "Credits"}
       </span>
     </Link>
   );

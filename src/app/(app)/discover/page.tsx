@@ -1,13 +1,25 @@
 import Link from "next/link";
 import { DiscoverFeed } from "@/components/discover/discover-feed";
 import { Button } from "@/components/ui/button";
+import { SignInPrompt } from "@/components/auth/sign-in-prompt";
+import { auth } from "@/lib/auth";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import { loadRecommendations } from "@/lib/recommendations/load";
 
 export const dynamic = "force-dynamic";
 
 export default async function DiscoverPage() {
-  const profile = await getTasteProfile();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return (
+      <SignInPrompt
+        title="Connect Spotify to see recommendations"
+        description="Sign in to get vinyl picks tailored to your taste."
+      />
+    );
+  }
+
+  const profile = await getTasteProfile(session.user.id);
 
   if (!profile?.completedAt) {
     return (
@@ -23,7 +35,10 @@ export default async function DiscoverPage() {
     );
   }
 
-  const { recommendations, error } = await loadRecommendations(false);
+  const { recommendations, error, degraded } = await loadRecommendations(
+    session.user.id,
+    false,
+  );
 
   return (
     <div className="space-y-2">
@@ -40,6 +55,7 @@ export default async function DiscoverPage() {
           quizGenres={profile.genres}
           quizDecades={profile.decades}
           error={error}
+          degraded={degraded}
         />
       </div>
     </div>

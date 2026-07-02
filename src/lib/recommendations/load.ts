@@ -17,31 +17,52 @@ import {
   getQuizOnlyRecommendations,
   mapQuizGenresToSpotify,
 } from "@/lib/recommendations/engine";
+import { toSourceError, type SourceError } from "@/lib/errors";
 import type { Recommendation } from "@/lib/types";
 
 export async function loadRecommendations(
+  userId: string,
   refresh = false,
-): Promise<{ recommendations: Recommendation[]; error?: string }> {
-  const profile = await getTasteProfile();
+): Promise<{
+  recommendations: Recommendation[];
+  error?: string;
+  degraded: SourceError[];
+}> {
+  const profile = await getTasteProfile(userId);
   if (!profile?.completedAt) {
-    return { recommendations: [], error: "Complete the taste quiz first" };
+    return {
+      recommendations: [],
+      error: "Complete the taste quiz first",
+      degraded: [],
+    };
   }
 
   if (!refresh) {
-    const cached = await getCachedRecommendations();
+    const cached = await getCachedRecommendations(userId);
     if (cached && cached.length > 0) {
-      return { recommendations: cached };
+      return { recommendations: cached, degraded: [] };
     }
   } else {
-    await clearRecommendationCache();
+    await clearRecommendationCache(userId);
   }
+
+  const degraded: SourceError[] = [];
 
   try {
     const session = await auth();
-    const snapshot = await getSpotifySnapshot();
+    const snapshot = await getSpotifySnapshot(userId);
     let recommendations: Recommendation[];
 
-    if (session?.accessToken) {
+    if (session?.error === "RefreshAccessTokenError") {
+      degraded.push(
+        toSourceError(
+          "spotify",
+          "Your Spotify connection expired — reconnect to use listening history in recommendations.",
+        ),
+      );
+    }
+
+    if (session?.accessToken && session.error !== "RefreshAccessTokenError") {
       let topArtists = snapshot?.topArtists ?? [];
       let topGenres = snapshot?.topGenres ?? [];
 
@@ -49,7 +70,7 @@ export async function loadRecommendations(
         if (!snapshot || snapshot.topArtists.length === 0) {
           topArtists = await fetchTopArtists(session.accessToken);
           topGenres = deriveTopGenres(topArtists);
-          await saveSpotifySnapshot({
+          await saveSpotifySnapshot(userId, {
             topArtists,
             topAlbums: snapshot?.topAlbums ?? [],
             topGenres,
@@ -73,9 +94,16 @@ export async function loadRecommendations(
             topGenres,
           );
         } else {
+          degraded.push(
+            toSourceError(
+              "spotify",
+              "No Spotify-based candidates found — showing quiz-based picks instead.",
+            ),
+          );
           recommendations = await getQuizOnlyRecommendations(profile);
         }
-      } catch {
+      } catch (error) {
+        degraded.push(toSourceError("spotify", error));
         recommendations = await getQuizOnlyRecommendations(profile);
       }
     } else {
@@ -83,10 +111,17 @@ export async function loadRecommendations(
     }
 
     if (recommendations.length > 0) {
-      await cacheRecommendations(recommendations);
+      await cacheRecommendations(userId, recommendations);
+    } else {
+      degraded.push(
+        toSourceError(
+          "discogs",
+          "No vinyl matches were found on Discogs for your taste profile.",
+        ),
+      );
     }
 
-    return { recommendations };
+    return { recommendations, degraded };
   } catch (error) {
     return {
       recommendations: [],
@@ -94,6 +129,7 @@ export async function loadRecommendations(
         error instanceof Error
           ? error.message
           : "Failed to generate recommendations",
+      degraded: [...degraded, toSourceError("discogs", error, false)],
     };
   }
 }

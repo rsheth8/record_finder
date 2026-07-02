@@ -1,10 +1,22 @@
 import { QuizFlow } from "@/components/quiz/quiz-flow";
+import { SignInPrompt } from "@/components/auth/sign-in-prompt";
+import { auth } from "@/lib/auth";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function QuizPage() {
-  const profile = await getTasteProfile();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return (
+      <SignInPrompt
+        title="Connect Spotify to start"
+        description="We use your Spotify listening history and quiz answers together to build your taste profile."
+      />
+    );
+  }
+
+  const profile = await getTasteProfile(session.user.id);
 
   return (
     <div className="space-y-6">

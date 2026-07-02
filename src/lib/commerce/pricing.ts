@@ -1,3 +1,7 @@
+// Credits are a free gamification/rate-limit mechanic, not real currency —
+// there is no payment path. These conversions only produce a display
+// estimate of what a reservation "costs" relative to the Discogs listing
+// price; no money changes hands anywhere in this flow.
 const MIN_CREDITS = 50;
 const CREDITS_PER_USD = 10;
 

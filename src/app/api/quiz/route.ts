@@ -1,29 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  attachTasteProfileCookie,
-  getTasteProfile,
-  saveTasteProfile,
-} from "@/lib/taste-profile-store";
-import type { AlbumPreference, QuizDecade, QuizGenre, QuizMood } from "@/lib/types";
+import { auth } from "@/lib/auth";
+import { getTasteProfile, saveTasteProfile } from "@/lib/taste-profile-store";
+import { saveQuizSchema } from "@/lib/validation/quiz";
 
 export async function GET() {
-  const profile = await getTasteProfile();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
+  const profile = await getTasteProfile(session.user.id);
   return NextResponse.json(profile);
 }
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
 
-  const data = {
-    genres: (body.genres ?? []) as QuizGenre[],
-    decades: (body.decades ?? []) as QuizDecade[],
-    moods: (body.moods ?? []) as QuizMood[],
-    albumPreference: (body.albumPreference ?? "balanced") as AlbumPreference,
-    deepCutLevel: Number(body.deepCutLevel ?? 50),
-    completed: Boolean(body.completed),
-  };
+  const parsed = saveQuizSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid request body", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
 
-  const profile = await saveTasteProfile(data);
-  const response = NextResponse.json(profile);
-  return attachTasteProfileCookie(response, profile);
+  const profile = await saveTasteProfile(session.user.id, parsed.data);
+  return NextResponse.json(profile);
 }

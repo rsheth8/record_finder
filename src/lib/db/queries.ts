@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   tasteProfile,
   spotifySnapshot,
@@ -22,12 +22,14 @@ import type {
   QuizMood,
 } from "@/lib/types";
 
-export async function getTasteProfileFromDb(): Promise<TasteProfileData | null> {
+export async function getTasteProfileFromDb(
+  userId: string,
+): Promise<TasteProfileData | null> {
   await ensureDb();
   const row = await db
     .select()
     .from(tasteProfile)
-    .orderBy(desc(tasteProfile.id))
+    .where(eq(tasteProfile.userId, userId))
     .get();
   if (!row) return null;
 
@@ -42,17 +44,19 @@ export async function getTasteProfileFromDb(): Promise<TasteProfileData | null> 
 }
 
 export async function saveTasteProfileToDb(
+  userId: string,
   data: Omit<TasteProfileData, "completedAt"> & { completed?: boolean },
 ) {
   await ensureDb();
   const existing = await db
     .select()
     .from(tasteProfile)
-    .orderBy(desc(tasteProfile.id))
+    .where(eq(tasteProfile.userId, userId))
     .get();
   const now = new Date();
 
   const values = {
+    userId,
     genres: JSON.stringify(data.genres),
     decades: JSON.stringify(data.decades),
     moods: JSON.stringify(data.moods),
@@ -62,17 +66,13 @@ export async function saveTasteProfileToDb(
     updatedAt: now,
   };
 
-  if (existing) {
-    await db
-      .update(tasteProfile)
-      .set(values)
-      .where(eq(tasteProfile.id, existing.id));
-  } else {
-    await db.insert(tasteProfile).values(values);
-  }
+  await db
+    .insert(tasteProfile)
+    .values(values)
+    .onConflictDoUpdate({ target: tasteProfile.userId, set: values });
 }
 
-export async function getSpotifySnapshot(): Promise<{
+export async function getSpotifySnapshot(userId: string): Promise<{
   topArtists: SpotifyArtist[];
   topAlbums: SpotifyAlbum[];
   topGenres: string[];
@@ -82,7 +82,7 @@ export async function getSpotifySnapshot(): Promise<{
   const row = await db
     .select()
     .from(spotifySnapshot)
-    .orderBy(desc(spotifySnapshot.id))
+    .where(eq(spotifySnapshot.userId, userId))
     .get();
   if (!row) return null;
 
@@ -94,25 +94,34 @@ export async function getSpotifySnapshot(): Promise<{
   };
 }
 
-export async function saveSpotifySnapshot(data: {
-  topArtists: SpotifyArtist[];
-  topAlbums: SpotifyAlbum[];
-  topGenres: string[];
-}) {
+export async function saveSpotifySnapshot(
+  userId: string,
+  data: {
+    topArtists: SpotifyArtist[];
+    topAlbums: SpotifyAlbum[];
+    topGenres: string[];
+  },
+) {
   await ensureDb();
-  await db.insert(spotifySnapshot).values({
+  const values = {
+    userId,
     topArtists: JSON.stringify(data.topArtists),
     topAlbums: JSON.stringify(data.topAlbums),
     topGenres: JSON.stringify(data.topGenres),
     fetchedAt: new Date(),
-  });
+  };
+  await db
+    .insert(spotifySnapshot)
+    .values(values)
+    .onConflictDoUpdate({ target: spotifySnapshot.userId, set: values });
 }
 
-export async function getWishlist(): Promise<WishlistItem[]> {
+export async function getWishlist(userId: string): Promise<WishlistItem[]> {
   await ensureDb();
   const rows = await db
     .select()
     .from(wishlistItems)
+    .where(eq(wishlistItems.userId, userId))
     .orderBy(desc(wishlistItems.addedAt))
     .all();
 
@@ -129,12 +138,14 @@ export async function getWishlist(): Promise<WishlistItem[]> {
 }
 
 export async function addToWishlist(
+  userId: string,
   item: Omit<WishlistItem, "id" | "addedAt">,
 ) {
   await ensureDb();
   await db
     .insert(wishlistItems)
     .values({
+      userId,
       discogsReleaseId: item.discogsReleaseId,
       title: item.title,
       artist: item.artist,
@@ -146,50 +157,79 @@ export async function addToWishlist(
     .onConflictDoNothing();
 }
 
-export async function removeFromWishlist(discogsReleaseId: number) {
+export async function removeFromWishlist(
+  userId: string,
+  discogsReleaseId: number,
+) {
   await ensureDb();
   await db
     .delete(wishlistItems)
-    .where(eq(wishlistItems.discogsReleaseId, discogsReleaseId));
+    .where(
+      and(
+        eq(wishlistItems.userId, userId),
+        eq(wishlistItems.discogsReleaseId, discogsReleaseId),
+      ),
+    );
 }
 
-export async function isInWishlist(discogsReleaseId: number): Promise<boolean> {
+export async function isInWishlist(
+  userId: string,
+  discogsReleaseId: number,
+): Promise<boolean> {
   await ensureDb();
   const row = await db
     .select()
     .from(wishlistItems)
-    .where(eq(wishlistItems.discogsReleaseId, discogsReleaseId))
+    .where(
+      and(
+        eq(wishlistItems.userId, userId),
+        eq(wishlistItems.discogsReleaseId, discogsReleaseId),
+      ),
+    )
     .get();
   return !!row;
 }
 
-export async function getCachedRecommendations(): Promise<Recommendation[] | null> {
+export async function getCachedRecommendations(
+  userId: string,
+): Promise<Recommendation[] | null> {
   await ensureDb();
   const row = await db
     .select()
     .from(recommendationCache)
-    .orderBy(desc(recommendationCache.id))
+    .where(eq(recommendationCache.userId, userId))
     .get();
 
   if (!row || row.expiresAt < new Date()) return null;
   return parseJson<Recommendation[]>(row.results, []);
 }
 
-export async function clearRecommendationCache() {
+export async function clearRecommendationCache(userId: string) {
   await ensureDb();
-  await db.delete(recommendationCache);
+  await db
+    .delete(recommendationCache)
+    .where(eq(recommendationCache.userId, userId));
 }
 
-export async function cacheRecommendations(results: Recommendation[]) {
-  await clearRecommendationCache();
+export async function cacheRecommendations(
+  userId: string,
+  results: Recommendation[],
+) {
+  await ensureDb();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
 
-  await db.insert(recommendationCache).values({
+  const values = {
+    userId,
     results: JSON.stringify(results),
     expiresAt,
     createdAt: now,
-  });
+  };
+
+  await db
+    .insert(recommendationCache)
+    .values(values)
+    .onConflictDoUpdate({ target: recommendationCache.userId, set: values });
 }
 
 export async function ensureUser(userId: string, email?: string | null) {
@@ -218,22 +258,12 @@ export async function addCreditEntry(params: {
   userId: string;
   delta: number;
   reason: string;
-  stripeSessionId?: string;
 }) {
   await ensureDb();
-  if (params.stripeSessionId) {
-    const existing = await db
-      .select()
-      .from(creditLedger)
-      .where(eq(creditLedger.stripeSessionId, params.stripeSessionId))
-      .get();
-    if (existing) return;
-  }
   await db.insert(creditLedger).values({
     userId: params.userId,
     delta: params.delta,
     reason: params.reason,
-    stripeSessionId: params.stripeSessionId ?? null,
     createdAt: new Date(),
   });
 }
@@ -248,26 +278,28 @@ export async function getCreditHistory(userId: string) {
     .all();
 }
 
-export type OrderRecord = {
+/** A reservation: credits spent to hold a concierge queue spot for a Discogs
+ * listing. There is no payment lifecycle — the buyer completes the purchase
+ * on Discogs themselves. */
+export type ReservationRecord = {
   id: number;
   userId: string;
   discogsReleaseId: number;
   title: string;
   artist: string;
   creditsSpent: number;
-  status: string;
   discogsUrl: string;
   createdAt: Date;
 };
 
-export async function createOrder(params: {
+export async function createReservation(params: {
   userId: string;
   discogsReleaseId: number;
   title: string;
   artist: string;
   creditsSpent: number;
   discogsUrl: string;
-}): Promise<OrderRecord> {
+}): Promise<ReservationRecord> {
   await ensureDb();
   const createdAt = new Date();
   const result = await db
@@ -278,13 +310,12 @@ export async function createOrder(params: {
       title: params.title,
       artist: params.artist,
       creditsSpent: params.creditsSpent,
-      status: "reserved",
       discogsUrl: params.discogsUrl,
       createdAt,
     })
     .returning();
 
-  if (result[0]) return result[0] as OrderRecord;
+  if (result[0]) return result[0] as ReservationRecord;
 
   const row = await db
     .select()
@@ -293,24 +324,26 @@ export async function createOrder(params: {
     .orderBy(desc(orders.id))
     .get();
 
-  return row as OrderRecord;
+  return row as ReservationRecord;
 }
 
-export async function getOrder(
-  orderId: number,
+export async function getReservation(
+  reservationId: number,
   userId: string,
-): Promise<OrderRecord | null> {
+): Promise<ReservationRecord | null> {
   await ensureDb();
   const row = await db
     .select()
     .from(orders)
-    .where(eq(orders.id, orderId))
+    .where(eq(orders.id, reservationId))
     .get();
   if (!row || row.userId !== userId) return null;
-  return row as OrderRecord;
+  return row as ReservationRecord;
 }
 
-export async function getUserOrders(userId: string): Promise<OrderRecord[]> {
+export async function getUserReservations(
+  userId: string,
+): Promise<ReservationRecord[]> {
   await ensureDb();
   const rows = await db
     .select()
@@ -318,5 +351,5 @@ export async function getUserOrders(userId: string): Promise<OrderRecord[]> {
     .where(eq(orders.userId, userId))
     .orderBy(desc(orders.createdAt))
     .all();
-  return rows as OrderRecord[];
+  return rows as ReservationRecord[];
 }

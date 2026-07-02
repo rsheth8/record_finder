@@ -1,12 +1,13 @@
 import { auth } from "@/lib/auth";
 import {
   addCreditEntry,
-  createOrder,
+  createReservation,
   ensureUser,
   getCreditBalance,
 } from "@/lib/db/queries";
 import { getMarketplaceStats } from "@/lib/discogs/client";
 import { usdToCredits } from "@/lib/commerce/pricing";
+import { createOrderSchema } from "@/lib/validation/orders";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -15,14 +16,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const discogsReleaseId = Number(body.discogsReleaseId);
-  const title = String(body.title ?? "");
-  const artist = String(body.artist ?? "");
-
-  if (!discogsReleaseId || !title || !artist) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  const parsed = createOrderSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid request body", issues: parsed.error.issues },
+      { status: 400 },
+    );
   }
+  const { discogsReleaseId, title, artist } = parsed.data;
 
   const marketplace = await getMarketplaceStats(discogsReleaseId);
   if (!marketplace || marketplace.numForSale === 0) {
@@ -33,8 +34,7 @@ export async function POST(request: NextRequest) {
   }
 
   const creditCost =
-    Number(body.creditsSpent) ||
-    usdToCredits(marketplace.lowestPrice ?? 5);
+    parsed.data.creditsSpent || usdToCredits(marketplace.lowestPrice ?? 5);
 
   await ensureUser(session.user.id, session.user.email);
   const balance = await getCreditBalance(session.user.id);
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     reason: `Reserved: ${artist} — ${title}`,
   });
 
-  const order = await createOrder({
+  const reservation = await createReservation({
     userId: session.user.id,
     discogsReleaseId,
     title,
@@ -63,5 +63,5 @@ export async function POST(request: NextRequest) {
 
   const newBalance = await getCreditBalance(session.user.id);
 
-  return NextResponse.json({ order, balance: newBalance });
+  return NextResponse.json({ reservation, balance: newBalance });
 }

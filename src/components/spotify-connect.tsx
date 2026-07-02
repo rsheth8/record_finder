@@ -24,6 +24,20 @@ export function SpotifyConnect({
     return <Button variant="outline" disabled>Loading...</Button>;
   }
 
+  if (session?.error === "RefreshAccessTokenError") {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-amber-400">
+          Your Spotify connection expired.
+        </span>
+        <Button size="sm" onClick={() => signIn("spotify")} className="gap-2">
+          <Music className="h-4 w-4" />
+          Reconnect Spotify
+        </Button>
+      </div>
+    );
+  }
+
   if (session) {
     return (
       <div className="flex items-center gap-3">

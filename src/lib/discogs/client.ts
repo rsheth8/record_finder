@@ -1,6 +1,12 @@
 import type { DiscogsRelease, Recommendation } from "@/lib/types";
+import { createRateLimiter } from "@/lib/utils/rate-limited-pool";
+import { getArtistTags, getCoverArt, searchReleaseGroup } from "@/lib/musicbrainz/client";
+import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
 
 const DISCOGS_API = "https://api.discogs.com";
+
+/** Discogs allows ~60 requests/min for authenticated tokens — space calls at 1/sec. */
+export const discogsThrottle = createRateLimiter(1000);
 
 function discogsHeaders(): HeadersInit {
   const token = process.env.DISCOGS_TOKEN;
@@ -11,10 +17,12 @@ function discogsHeaders(): HeadersInit {
 }
 
 async function discogsFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${DISCOGS_API}${path}`, {
-    headers: discogsHeaders(),
-    next: { revalidate: 86400 },
-  });
+  const res = await discogsThrottle(() =>
+    fetch(`${DISCOGS_API}${path}`, {
+      headers: discogsHeaders(),
+      next: { revalidate: 86400 },
+    }),
+  );
 
   if (!res.ok) {
     const text = await res.text();
@@ -120,13 +128,29 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
 
     const marketplace = await getMarketplaceStats(data.id);
 
+    // Companion enrichment (not on the hot scoring path, so no rate pressure):
+    // MusicBrainz genre tags, and a cover-art fallback chain if Discogs has none.
+    const [mbGroup, mbTags, appleAlbum] = await Promise.all([
+      searchReleaseGroup(artist, data.title).catch(() => null),
+      getArtistTags(artist).catch(() => []),
+      cover ? Promise.resolve(null) : searchAppleMusicAlbum(artist, data.title).catch(() => null),
+    ]);
+
+    let resolvedCover = cover;
+    if (!resolvedCover && mbGroup?.mbid) {
+      resolvedCover = await getCoverArt(mbGroup.mbid).catch(() => null);
+    }
+    if (!resolvedCover && appleAlbum?.artworkUrl) {
+      resolvedCover = appleAlbum.artworkUrl;
+    }
+
     return {
       id: data.id,
       title: titleParts.join(" - ") || data.title,
       artist,
       year: data.year ?? null,
-      coverUrl: cover,
-      genres: data.genres ?? [],
+      coverUrl: resolvedCover,
+      genres: Array.from(new Set([...(data.genres ?? []), ...mbTags])),
       styles: data.styles ?? [],
       formats: (data.formats ?? []).map(
         (f) => `${f.name}${f.descriptions?.length ? ` (${f.descriptions.join(", ")})` : ""}`,

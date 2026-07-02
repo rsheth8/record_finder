@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Heart } from "lucide-react";
 
 export function WishlistButton({
@@ -22,16 +24,25 @@ export function WishlistButton({
   initialInWishlist: boolean;
 }) {
   const router = useRouter();
+  const { data: session } = useSession();
+  const { showToast } = useToast();
   const [inWishlist, setInWishlist] = useState(initialInWishlist);
   const [loading, setLoading] = useState(false);
 
   async function toggle() {
+    if (!session) {
+      router.push("/");
+      showToast("Connect Spotify to save records to your wishlist", "info");
+      return;
+    }
+
     setLoading(true);
     if (inWishlist) {
       await fetch(`/api/wishlist?discogsReleaseId=${discogsReleaseId}`, {
         method: "DELETE",
       });
       setInWishlist(false);
+      showToast("Removed from wishlist", "info");
     } else {
       await fetch("/api/wishlist", {
         method: "POST",
@@ -45,6 +56,7 @@ export function WishlistButton({
         }),
       });
       setInWishlist(true);
+      showToast("Added to wishlist", "success");
     }
     setLoading(false);
     router.refresh();
@@ -69,6 +81,7 @@ export function WishlistRemoveButton({
   discogsReleaseId: number;
 }) {
   const router = useRouter();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
 
   async function remove() {
@@ -77,6 +90,7 @@ export function WishlistRemoveButton({
       method: "DELETE",
     });
     setLoading(false);
+    showToast("Removed from wishlist", "info");
     router.refresh();
   }
 

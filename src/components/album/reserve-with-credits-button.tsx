@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatCredits, creditsToUsd, formatUsd } from "@/lib/commerce/pricing";
 import { Loader2, ShoppingBag } from "lucide-react";
 
-export function BuyWithCreditsButton({
+export function ReserveWithCreditsButton({
   discogsReleaseId,
   title,
   artist,
@@ -35,7 +35,7 @@ export function BuyWithCreditsButton({
     );
   }
 
-  async function handleBuy() {
+  async function handleReserve() {
     if (!session) {
       router.push("/credits");
       return;
@@ -45,7 +45,7 @@ export function BuyWithCreditsButton({
     setError(null);
 
     try {
-      const res = await fetch("/api/orders", {
+      const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -66,7 +66,7 @@ export function BuyWithCreditsButton({
         throw new Error(data.error ?? "Could not reserve record");
       }
 
-      router.push(`/orders/${data.order.id}`);
+      router.push(`/reservations/${data.reservation.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -76,7 +76,7 @@ export function BuyWithCreditsButton({
 
   return (
     <div className="space-y-2">
-      <Button onClick={handleBuy} disabled={loading} className="gap-2">
+      <Button onClick={handleReserve} disabled={loading} className="gap-2">
         {loading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
@@ -86,7 +86,7 @@ export function BuyWithCreditsButton({
       </Button>
       {lowestPriceUsd && (
         <p className="text-xs text-zinc-500">
-          ≈ {formatUsd(creditsToUsd(creditCost))} concierge fee · Discogs from{" "}
+          ≈ {formatUsd(creditsToUsd(creditCost))} concierge fee · est. Discogs price from{" "}
           {formatUsd(lowestPriceUsd)}
         </p>
       )}

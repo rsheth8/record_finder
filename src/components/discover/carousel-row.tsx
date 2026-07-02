@@ -125,19 +125,18 @@ export function CarouselRow({
         </div>
       ) : null}
 
-      <div className="relative">
+      <div className={cn("relative", showArrows && "px-11 sm:px-12")}>
         {showArrows && canScrollPrev && (
           <button
             type="button"
             onClick={scrollPrev}
             aria-label={`Scroll ${title || "albums"} left`}
             className={cn(
-              "absolute top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
+              "absolute left-0 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
               "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
-              bleed ? "left-1 sm:left-[max(0.25rem,calc((100vw-72rem)/2))]" : "left-1",
             )}
           >
             <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -150,12 +149,11 @@ export function CarouselRow({
             onClick={scrollNext}
             aria-label={`Scroll ${title || "albums"} right`}
             className={cn(
-              "absolute top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
+              "absolute right-0 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
               "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
-              bleed ? "right-2 sm:right-4" : "right-1",
             )}
           >
             <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -164,11 +162,16 @@ export function CarouselRow({
 
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-background to-transparent sm:w-14",
-            bleed && "sm:left-[max(0px,calc((100vw-72rem)/2))]",
+            "pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent sm:w-10",
+            !canScrollPrev && "opacity-0",
           )}
         />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-background to-transparent sm:w-16" />
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent sm:w-10",
+            !canScrollNext && "opacity-0",
+          )}
+        />
 
         <div
           ref={emblaRef}
@@ -178,16 +181,20 @@ export function CarouselRow({
             "cursor-grab active:cursor-grabbing",
           )}
         >
-          <div className="flex touch-pan-y gap-3 sm:gap-4">
+          <div className="flex touch-pan-y">
             {items.map((rec) => (
-              <PosterCard
+              <div
                 key={rec.discogsReleaseId}
-                rec={rec}
-                variant="carousel"
-                isDragging={isDragging}
-                featured={featured}
-                className={cardWidth}
-              />
+                className={cn("min-w-0 shrink-0 grow-0 pr-3 sm:pr-4", cardWidth)}
+              >
+                <PosterCard
+                  rec={rec}
+                  variant="carousel"
+                  isDragging={isDragging}
+                  featured={featured}
+                  className="w-full"
+                />
+              </div>
             ))}
           </div>
         </div>

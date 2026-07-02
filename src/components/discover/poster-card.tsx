@@ -36,10 +36,12 @@ export function PosterCard({
   const Wrapper = reducedMotion ? "div" : motion.div;
   const motionProps = reducedMotion
     ? {}
-    : {
-        whileHover: { scale: variant === "carousel" ? 1.05 : 1.03, y: -4 },
-        transition: spring,
-      };
+    : variant === "carousel"
+      ? {}
+      : {
+          whileHover: { scale: 1.03, y: -4 },
+          transition: spring,
+        };
 
   return (
     <Wrapper className={cn("group relative shrink-0", className)} {...motionProps}>

@@ -23,6 +23,10 @@ export default async function HomePage() {
     : [];
   const topPicks = [...recommendations]
     .sort((a, b) => b.score - a.score)
+    .filter(
+      (rec, index, list) =>
+        list.findIndex((item) => item.discogsReleaseId === rec.discogsReleaseId) === index,
+    )
     .slice(0, 12);
   const quizDone = !!profile?.completedAt;
   const spotifyConnected = !!session?.accessToken;

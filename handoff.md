@@ -1,6 +1,6 @@
 # Record Finder — Handoff
 
-Last updated: July 2026
+Last updated: 2026-07-02
 
 ## What this is
 
@@ -13,8 +13,9 @@ Last updated: July 2026
 | Layer | Choice |
 |-------|--------|
 | Framework | Next.js 16 (App Router), React 19 |
+| UI / motion | Tailwind CSS v4, hand-rolled primitives (no UI lib); `gsap` + `framer-motion` for motion; **no 3D libs** (a WebGL scene was removed — see below) |
 | Auth | NextAuth v5 — Spotify OAuth only |
-| DB | SQLite via Drizzle + libSQL (`file:./data/record_finder.db` locally; Turso optional in prod) |
+| DB | SQLite via Drizzle + libSQL / `@libsql/client` (`file:./data/record_finder.db` locally; Turso optional in prod) |
 | APIs | Discogs (vinyl source of truth), Spotify, Last.fm, MusicBrainz, Apple Music (iTunes Search) |
 | Tests | Vitest |
 
@@ -115,6 +116,18 @@ Stored in `spotify_snapshot.taste_vector` (JSON).
 
 Quiz responses stored separately in `quiz_responses` (album preferences + sub-genres). Summary stays in `taste_profile`. Completing quiz re-derives taste vector if Spotify snapshot exists.
 
+## UI, theming & ambient scene
+
+**Themes** (`src/lib/themes.ts`) — six full themes, each defining `--color-*` custom properties and a display font: `record-store-noir` (default), `midnight-wax`, `analog-warmth`, `neon-crate`, `hifi-minimal`, `jazz-club`. Selection persists in `localStorage` (`record-finder-theme`) via `ThemeProvider` (`src/components/theme-provider.tsx`), which reads through `useSyncExternalStore` (SSR-safe, no setState-in-effect) and sets `data-theme` on `<html>`. Picker UI: `theme-picker.tsx`; per-theme font swap: `theme-font-sync.tsx`.
+
+**Ambient scene** — the four dark "cinematic" themes (`IMMERSIVE_THEMES` / `isImmersiveTheme()`: record-store-noir, midnight-wax, neon-crate, jazz-club) render a slow-spinning **CSS vinyl record** in the hero plus glow orbs, a raking light beam, vignette, and floor glow. Light/minimal themes (analog-warmth, hifi-minimal) stay clean. All scene colors derive from theme accent/surface tokens via `color-mix`, so it recolors per theme automatically. Components: `noir/noir-atmosphere.tsx`, `home/noir-hero.tsx`; styles in `src/app/globals.css`. Everything honors `prefers-reduced-motion` (`src/hooks/use-reduced-motion.ts`).
+
+> **Note:** an earlier heavier WebGL/three.js scene rendered near-invisible and was replaced by the CSS scene above. `three` / `@react-three/*` have been removed — do not reintroduce them.
+
+**Layout** — `app-shell.tsx` wraps pages with the atmosphere, desktop `app-nav.tsx`, and a mobile bottom-tab `mobile-nav.tsx` (auto-hides on `/album/*`, which uses a sticky action bar instead). Page/stagger transitions: `src/components/motion/`.
+
+**Discover / album UI** — poster cards (`discover/poster-card.tsx`) with dark-glass price + rating badges and a vinyl "no cover art" placeholder; carousels via Embla (`discover/carousel-row.tsx`); grid (`discover/discover-grid.tsx`). The album page's presentation is extracted into `components/album/album-detail.tsx` (the route just fetches data); buy/reserve/wishlist actions in `album/album-actions.tsx` (a single button row with concierge helper text below).
+
 ## Database schema
 
 Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0004_taste_intelligence.sql`.
@@ -145,6 +158,10 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Types | `src/lib/types.ts` |
 | Auth + guest merge | `src/lib/auth.ts`, `src/lib/identity.ts` |
 | Commerce | `src/lib/commerce/` |
+| Theming + ambient scene | `src/lib/themes.ts`, `src/components/theme-provider.tsx`, `src/components/noir/noir-atmosphere.tsx`, `src/components/home/noir-hero.tsx` |
+| App shell + nav | `src/components/app-shell.tsx`, `src/components/app-nav.tsx`, `src/components/mobile-nav.tsx` |
+| Album detail (presentation) | `src/components/album/album-detail.tsx`, `src/components/album/album-actions.tsx` |
+| Discover cards / carousels | `src/components/discover/poster-card.tsx`, `carousel-row.tsx`, `discover-grid.tsx` |
 
 ## API routes
 
@@ -167,6 +184,8 @@ Copy `.env.example` → `.env.local`. Required for full functionality:
 - `DATABASE_URL` (defaults to local SQLite file)
 
 Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB).
+
+A missing `DISCOGS_TOKEN` fails fast with an actionable error (pointing at discogs.com/settings/developers) instead of a cryptic upstream `401 Invalid consumer token` — a personal access token is enough; no app registration needed. Note `.env.local` is per-directory, so each git worktree needs its own copy.
 
 ## Local dev
 

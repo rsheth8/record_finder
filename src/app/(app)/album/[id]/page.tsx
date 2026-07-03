@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
-import { getRelease, getSimilarReleases } from "@/lib/discogs/client";
+import { getRelease } from "@/lib/discogs/client";
 import {
   isInWishlist,
   getReleaseFeedback,
   getCachedRecommendations,
+  getReservationCountForRelease,
 } from "@/lib/db/queries";
 import { AlbumDetail } from "@/components/album/album-detail";
 import { auth } from "@/lib/auth";
@@ -38,6 +39,11 @@ export default async function AlbumPage({
   }
 
   const userId = await getCurrentUserId();
+  // Public info, not gated on sign-in — how many collectors have reserved a
+  // concierge spot for this release so far.
+  const reservationCount = await getReservationCountForRelease(releaseId).catch(
+    () => 0,
+  );
   let inWishlist = false;
   let feedbackSignal: FeedbackSignal | null = null;
   let cachedRecs: Awaited<ReturnType<typeof getCachedRecommendations>> = [];
@@ -55,10 +61,13 @@ export default async function AlbumPage({
   }
 
   // Transparency: if this release is in the visitor's current picks, surface the
-  // reasons it was recommended. And a cheap "more like this" row by style/genre.
-  const recReasons =
-    (cachedRecs ?? []).find((r) => r.discogsReleaseId === releaseId)?.reasons ?? [];
-  const similar = await getSimilarReleases(release).catch(() => []);
+  // reasons it was recommended (and whether it was flagged as good value).
+  // "More like this" is fetched inside AlbumDetail, behind a Suspense
+  // boundary, so its (slower, fully-enriched) fetch doesn't block this page's
+  // initial render.
+  const cachedRec = (cachedRecs ?? []).find((r) => r.discogsReleaseId === releaseId);
+  const recReasons = cachedRec?.reasons ?? [];
+  const fairValue = cachedRec?.fairValue ?? false;
 
   return (
     <AlbumDetail
@@ -67,7 +76,8 @@ export default async function AlbumPage({
       inWishlist={inWishlist}
       feedbackSignal={feedbackSignal}
       recReasons={recReasons}
-      similar={similar}
+      fairValue={fairValue}
+      reservationCount={reservationCount}
       userId={userId}
       signedIn={!!session?.user}
     />

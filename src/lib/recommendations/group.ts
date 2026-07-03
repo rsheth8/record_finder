@@ -1,4 +1,5 @@
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import { isDeepCut } from "@/lib/recommendations/filter";
 
 export type RecommendationRow = {
   id: string;
@@ -13,12 +14,6 @@ function matchesGenre(rec: Recommendation, genre: string): boolean {
   return rec.genres.some(
     (rg) => rg.toLowerCase().includes(g) || g.includes(rg.toLowerCase()),
   );
-}
-
-function isDeepCutCandidate(rec: Recommendation): boolean {
-  if (rec.score < 40) return true;
-  if (rec.ratingCount !== null && rec.ratingCount < 50) return true;
-  return false;
 }
 
 function getTopGenres(recommendations: Recommendation[], limit = 4): string[] {
@@ -101,7 +96,7 @@ export function groupRecommendations(
   }
 
   const deepCuts = recommendations
-    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCutCandidate(r))
+    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCut(r))
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 

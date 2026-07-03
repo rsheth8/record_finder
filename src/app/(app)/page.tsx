@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { auth, isSpotifyConfigured } from "@/lib/auth";
 import { CarouselRow } from "@/components/discover/carousel-row";
 import { NoirHero } from "@/components/home/noir-hero";
+import { ListeningIntentRow } from "@/components/home/listening-intent-row";
 import { SpotifyConnect } from "@/components/spotify-connect";
 import { SpotifySync } from "@/components/spotify-sync";
 import { Button } from "@/components/ui/button";
@@ -146,6 +148,12 @@ export default async function HomePage() {
           </div>
           <CarouselRow title="" items={topPicks} bleed featured rowIndex={0} />
         </section>
+      )}
+
+      {spotifyConnected && userId && (
+        <Suspense fallback={null}>
+          <ListeningIntentRow userId={userId} />
+        </Suspense>
       )}
     </div>
   );

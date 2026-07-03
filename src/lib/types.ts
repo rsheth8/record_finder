@@ -152,6 +152,9 @@ export interface Recommendation {
   score: number;
   reasons: string[];
   marketplace?: RecommendationMarketplace;
+  /** Top-quartile demand (want/have ratio) at bottom-quartile price, relative
+   * to the rest of the batch it was scored in. See fair-value.ts. */
+  fairValue?: boolean;
 }
 
 export interface DiscogsRelease {
@@ -173,6 +176,21 @@ export interface DiscogsRelease {
     numForSale: number;
     discogsUrl: string;
   };
+  /** Discogs master release id — the "same album" grouping across every
+   * pressing/reissue/regional variant. Null for releases with no master
+   * (e.g. some compilations/bootlegs). Used to fetch sibling pressings. */
+  masterId: number | null;
+  /** Freeform human-written pressing notes (vinyl color, packaging, edition
+   * details) — curated by Discogs contributors, not structured data. */
+  notes: string | null;
+  /** Matrix/runout etchings, barcodes, label codes, etc. — the physical
+   * "fingerprint" info collectors use to distinguish pressing variants. */
+  identifiers: { type: string; value: string; description?: string }[];
+  /** Pressing plant, label, and rights-holder credits. */
+  companies: { name: string; entityTypeName: string }[];
+  /** Credited contributors beyond the main artist — includes mastering
+   * engineer credits ("Mastered By"), which audiophile collectors chase. */
+  extraArtists: { name: string; role: string }[];
 }
 
 /** User reactions to a recommendation, used to steer future picks.

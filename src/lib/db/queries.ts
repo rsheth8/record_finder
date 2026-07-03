@@ -314,6 +314,24 @@ export async function getCachedRecommendations(
   return normalizeRecommendations(parseJson<Recommendation[]>(row.results, []));
 }
 
+/** When the current recommendation cache expires (and picks regenerate on
+ * next visit), or null if there's no live cache. A separate, cheap query —
+ * skips parsing the (large) results JSON that {@link getCachedRecommendations}
+ * needs, since callers just displaying "refreshes in Xm" don't need it. */
+export async function getRecommendationCacheExpiry(
+  userId: string,
+): Promise<Date | null> {
+  await ensureDb();
+  const row = await db
+    .select({ expiresAt: recommendationCache.expiresAt })
+    .from(recommendationCache)
+    .where(eq(recommendationCache.userId, userId))
+    .get();
+
+  if (!row || row.expiresAt < new Date()) return null;
+  return row.expiresAt;
+}
+
 export async function clearRecommendationCache(userId: string) {
   await ensureDb();
   await db
@@ -644,4 +662,19 @@ export async function getUserReservations(
     .orderBy(desc(orders.createdAt))
     .all();
   return rows as ReservationRecord[];
+}
+
+/** How many collectors have reserved a concierge queue spot for this release —
+ * a social/gamification scarcity signal, not a real inventory count (there is
+ * no cap; a reservation never blocks another). See `orders`' doc comment. */
+export async function getReservationCountForRelease(
+  discogsReleaseId: number,
+): Promise<number> {
+  await ensureDb();
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(orders)
+    .where(eq(orders.discogsReleaseId, discogsReleaseId))
+    .get();
+  return result?.count ?? 0;
 }

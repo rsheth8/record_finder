@@ -1,5 +1,10 @@
-import type { DiscogsRelease, Recommendation } from "@/lib/types";
+import type {
+  DiscogsRelease,
+  Recommendation,
+  RecommendationMarketplace,
+} from "@/lib/types";
 import { createRateLimiter } from "@/lib/utils/rate-limited-pool";
+import { weightedSample } from "@/lib/utils/weighted-sample";
 import { getArtistTags, getCoverArt, searchReleaseGroup } from "@/lib/musicbrainz/client";
 import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
 import {
@@ -144,6 +149,72 @@ export async function getMarketplaceStats(releaseId: number): Promise<{
   }
 }
 
+/** The token account's marketplace display currency (e.g. "EUR"), read from a
+ * single marketplace/stats call. The release endpoint returns `lowest_price` as
+ * a bare number in this currency, so we need it to convert those to USD. Sample
+ * a release that's likely to have active listings; falls back to USD. */
+export async function getAccountCurrency(sampleReleaseId: number): Promise<string> {
+  try {
+    const data = await discogsFetch<{ lowest_price?: DiscogsLowestPrice }>(
+      `/marketplace/stats/${sampleReleaseId}`,
+    );
+    const raw = data.lowest_price;
+    if (raw && typeof raw === "object" && raw.currency) return raw.currency;
+  } catch {
+    // fall through to USD
+  }
+  return "USD";
+}
+
+/** One-shot enrichment for a recommendation: the `/releases/{id}` resource
+ * carries community rating, want/have, and marketplace price + stock all at
+ * once, so a single call fills everything the search endpoint left null —
+ * crucially the community rating, which drives sorting, the rating filter, and
+ * the ⭐ badge. `accountCurrency` converts the bare `lowest_price` to USD. */
+export async function getReleaseEnrichment(
+  id: number,
+  accountCurrency: string,
+): Promise<{
+  communityRating: number | null;
+  ratingCount: number | null;
+  wantCount: number | null;
+  haveCount: number | null;
+  marketplace: RecommendationMarketplace;
+} | null> {
+  try {
+    const data = await discogsFetch<{
+      num_for_sale?: number;
+      lowest_price?: number | null;
+      community?: {
+        want?: number;
+        have?: number;
+        rating?: { average?: number; count?: number };
+      };
+    }>(`/releases/${id}`);
+
+    const rawPrice = data.lowest_price;
+    const lowestPrice =
+      typeof rawPrice === "number" && Number.isFinite(rawPrice)
+        ? roundUsd(await convertToUsd(rawPrice, accountCurrency))
+        : null;
+
+    return {
+      communityRating: data.community?.rating?.average ?? null,
+      ratingCount: data.community?.rating?.count ?? null,
+      wantCount: data.community?.want ?? null,
+      haveCount: data.community?.have ?? null,
+      marketplace: {
+        lowestPrice,
+        currency: "USD",
+        numForSale: data.num_for_sale ?? 0,
+        discogsUrl: `https://www.discogs.com/sell/release/${id}`,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getRelease(id: number): Promise<DiscogsRelease | null> {
   try {
     const data = await discogsFetch<{
@@ -157,6 +228,11 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
       images?: { uri: string; type: string }[];
       community?: { rating: { average: number; count: number } };
       uri?: string;
+      master_id?: number;
+      notes?: string;
+      identifiers?: { type: string; value: string; description?: string }[];
+      companies?: { name: string; entity_type_name: string }[];
+      extraartists?: { name: string; role: string }[];
     }>(`/releases/${id}`);
 
     const [artist, ...titleParts] = data.title.includes(" - ")
@@ -206,51 +282,138 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
       ratingCount: data.community?.rating?.count ?? null,
       spotifyUrl: null,
       marketplace: marketplace ?? undefined,
+      masterId: data.master_id ?? null,
+      notes: data.notes ?? null,
+      identifiers: data.identifiers ?? [],
+      companies: (data.companies ?? []).map((c) => ({
+        name: c.name,
+        entityTypeName: c.entity_type_name,
+      })),
+      extraArtists: (data.extraartists ?? []).map((a) => ({
+        name: a.name,
+        role: a.role,
+      })),
     };
   } catch {
     return null;
   }
 }
 
+function searchResultToRecommendation(
+  r: DiscogsSearchResult,
+  reason: string,
+): Recommendation {
+  const parsed = splitDiscogsTitle(r.title);
+  return {
+    discogsReleaseId: r.id,
+    title: parsed.title || r.title,
+    artist: parsed.artist,
+    year: r.year ? parseInt(r.year, 10) : null,
+    coverUrl: r.cover_image ?? null,
+    genres: [...(r.genre ?? []), ...(r.style ?? [])],
+    formats: r.format ?? [],
+    communityRating: null,
+    ratingCount: null,
+    wantCount: r.community?.want ?? null,
+    haveCount: r.community?.have ?? null,
+    spotifyAlbumId: null,
+    spotifyUrl: null,
+    score: 0,
+    reasons: [reason],
+  };
+}
+
+/** Round-robins across per-source lists so the merged result alternates between
+ * genres/eras instead of front-loading whichever query returned the most. Keeps
+ * the top hits from each source near the front while spreading variety. */
+function interleave<T>(lists: T[][]): T[] {
+  const out: T[] = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) {
+    for (const list of lists) {
+      if (i < list.length) out.push(list[i]);
+    }
+  }
+  return out;
+}
+
+/** How much wider a pool to fetch per combo than we ultimately keep, so there's
+ * room to sample variety from (bounded — Discogs allows per_page up to 100). */
+const BROWSE_POOL_MULTIPLIER = 3;
+const BROWSE_POOL_MAX = 50;
+
+/** Quiz-only discovery. Rather than a single `genre[0] + decade[0]` search
+ * (which collapses the whole feed onto one sound), fan out across the user's
+ * top genres × eras, then interleave so the picks stay varied. Deduped by
+ * release id here; cross-pressing dedupe happens downstream.
+ *
+ * Each combo's query is `sort=want`, so the raw top-N Discogs returns for a
+ * given genre+decade barely changes day to day — "Refresh picks" would
+ * otherwise hand back the exact same records every time. To fix that without
+ * losing the want-sorted quality signal, we fetch a wider pool per combo and
+ * weighted-sample down to `perCombo`, favoring (not requiring) higher want
+ * counts. Same Discogs call count and per_page cost tradeoff — no extra
+ * rate-limit budget spent, and this holds even if Discogs' response for that
+ * URL is itself cached, since the sampling happens after the fetch. */
 export async function browseByGenreDecade(
   genres: string[],
   decades: string[],
   limit = 20,
 ): Promise<Recommendation[]> {
-  const decadeYear = decades[0]?.replace("s", "") ?? "199";
-  const genre = genres[0] ?? "Rock";
-  const q = encodeURIComponent(`${genre} ${decadeYear}`);
+  const genreSeeds = (genres.length > 0 ? genres : ["Rock"]).slice(0, 4);
+  const decadeSeeds = decades.length > 0 ? decades.slice(0, 3) : [""];
 
-  const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
-    `/database/search?q=${q}&type=release&format=Vinyl&per_page=${limit}&sort=want`,
+  const combos: { genre: string; decade: string }[] = [];
+  for (const genre of genreSeeds) {
+    for (const decade of decadeSeeds) combos.push({ genre, decade });
+  }
+  // Bound the number of Discogs searches; each genre is represented at least
+  // once by ordering genre-major above.
+  const capped = combos.slice(0, 6);
+  const perCombo = Math.max(8, Math.ceil((limit * 1.5) / capped.length));
+  const poolSize = Math.min(BROWSE_POOL_MAX, perCombo * BROWSE_POOL_MULTIPLIER);
+
+  const lists = await Promise.all(
+    capped.map(async ({ genre, decade }) => {
+      const decadeYear = decade ? decade.replace("s", "") : "";
+      const q = encodeURIComponent(`${genre} ${decadeYear}`.trim());
+      const reason = decade
+        ? `Matches your ${genre} and ${decade} preferences`
+        : `Matches your ${genre} preference`;
+      try {
+        const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
+          `/database/search?q=${q}&type=release&format=Vinyl&per_page=${poolSize}&sort=want`,
+        );
+        const pool = (data.results ?? []).map((r) =>
+          searchResultToRecommendation(r, reason),
+        );
+        return weightedSample(
+          pool,
+          perCombo,
+          (rec) => (rec.wantCount ?? 0) + 1,
+        );
+      } catch {
+        return [] as Recommendation[];
+      }
+    }),
   );
 
-  return (data.results ?? []).map((r) => {
-    const parsed = splitDiscogsTitle(r.title);
+  const seen = new Set<number>();
+  const merged: Recommendation[] = [];
+  for (const rec of interleave(lists)) {
+    if (seen.has(rec.discogsReleaseId)) continue;
+    seen.add(rec.discogsReleaseId);
+    merged.push(rec);
+  }
 
-    return {
-      discogsReleaseId: r.id,
-      title: parsed.title || r.title,
-      artist: parsed.artist,
-      year: r.year ? parseInt(r.year, 10) : null,
-      coverUrl: r.cover_image ?? null,
-      genres: [...(r.genre ?? []), ...(r.style ?? [])],
-      formats: r.format ?? [],
-      communityRating: null,
-      ratingCount: null,
-      wantCount: r.community?.want ?? null,
-      haveCount: r.community?.have ?? null,
-      spotifyAlbumId: null,
-      spotifyUrl: null,
-      score: 0,
-      reasons: [`Matches your ${genre} and ${decades[0] ?? "era"} preferences`],
-    };
-  });
+  return merged.slice(0, limit);
 }
 
 /** "More like this" for an album page: other popular vinyl sharing the release's
  * most specific style (falling back to genre), excluding the album itself. One
- * cheap Discogs search — safe to call inline on the album page. */
+ * cheap Discogs search — safe to call inline on the album page. Collects a
+ * little past `limit` so the caller has headroom to dedupe cross-pressings
+ * (different release ids, same album) without falling short of the target. */
 export async function getSimilarReleases(
   release: Pick<DiscogsRelease, "id" | "genres" | "styles">,
   limit = 12,
@@ -258,9 +421,10 @@ export async function getSimilarReleases(
   const seed = release.styles[0] ?? release.genres[0];
   if (!seed) return [];
 
+  const collectionCap = limit + 4;
   const q = encodeURIComponent(seed);
   const data = await discogsFetch<{ results: DiscogsSearchResult[] }>(
-    `/database/search?q=${q}&type=release&format=Vinyl&per_page=${limit + 8}&sort=want`,
+    `/database/search?q=${q}&type=release&format=Vinyl&per_page=${collectionCap + 8}&sort=want`,
   );
 
   const seen = new Set<number>([release.id]);
@@ -286,7 +450,58 @@ export async function getSimilarReleases(
       score: 0,
       reasons: [`More ${seed} on vinyl`],
     });
-    if (results.length >= limit) break;
+    if (results.length >= collectionCap) break;
   }
   return results;
+}
+
+export interface PressingVersion {
+  id: number;
+  title: string;
+  country: string | null;
+  released: string | null;
+  format: string | null;
+  inWantlist: number | null;
+  inCollection: number | null;
+}
+
+/** Every pressing/reissue/regional variant of an album, for a "compare
+ * pressings" view. One Discogs call regardless of how many versions exist —
+ * deliberately does NOT fetch marketplace price per version (that would be
+ * one more rate-limited call per row, and a popular album can have dozens of
+ * versions). Want/have stats come back inline on this endpoint, so those are
+ * "free." */
+export async function getMasterVersions(
+  masterId: number,
+  limit = 20,
+): Promise<PressingVersion[]> {
+  try {
+    const data = await discogsFetch<{
+      versions?: {
+        id: number;
+        title: string;
+        country?: string;
+        released?: string;
+        format?: string;
+        stats?: { community?: { in_wantlist?: number; in_collection?: number } };
+      }[];
+    }>(`/masters/${masterId}/versions?per_page=${limit}`);
+
+    const versions = (data.versions ?? []).slice(0, limit).map((v) => ({
+      id: v.id,
+      title: v.title,
+      country: v.country ?? null,
+      released: v.released ?? null,
+      format: v.format ?? null,
+      inWantlist: v.stats?.community?.in_wantlist ?? null,
+      inCollection: v.stats?.community?.in_collection ?? null,
+    }));
+
+    // The endpoint doesn't support sorting by demand, so do it client-side —
+    // most-wanted pressings first is the useful order for "which pressing
+    // should I chase."
+    return versions.sort((a, b) => (b.inWantlist ?? 0) - (a.inWantlist ?? 0));
+  } catch {
+    return [];
+  }
 }

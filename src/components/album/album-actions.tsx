@@ -21,6 +21,7 @@ export function AlbumActions({
   spotifyUrl,
   inWishlist,
   forSale,
+  reservationCount = 0,
   compact = false,
 }: {
   discogsReleaseId: number;
@@ -36,6 +37,7 @@ export function AlbumActions({
   spotifyUrl: string | null;
   inWishlist: boolean;
   forSale: boolean;
+  reservationCount?: number;
   compact?: boolean;
 }) {
   const size = compact ? "sm" : "md";
@@ -58,6 +60,7 @@ export function AlbumActions({
           artist={artist}
           creditCost={creditCost}
           numForSale={numForSale}
+          reservationCount={reservationCount}
           compact={compact}
         />
         <WishlistButton

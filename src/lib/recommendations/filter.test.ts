@@ -4,6 +4,7 @@ import {
   sortRecommendations,
   getAvailableGenres,
   hasActiveFilters,
+  isDeepCut,
   DEFAULT_DISCOVER_FILTERS,
   type DiscoverFilterState,
 } from "@/lib/recommendations/filter";
@@ -62,6 +63,47 @@ describe("filterRecommendations", () => {
   });
 });
 
+describe("filterRecommendations — marketplace & format", () => {
+  const forSale = rec({
+    artist: "For Sale",
+    formats: ["Vinyl", "LP", "Album"],
+    marketplace: { lowestPrice: 20, currency: "USD", numForSale: 3, discogsUrl: "" },
+  });
+  const pricey = rec({
+    artist: "Pricey",
+    formats: ["Vinyl", "LP"],
+    marketplace: { lowestPrice: 80, currency: "USD", numForSale: 1, discogsUrl: "" },
+  });
+  const soldOut = rec({
+    artist: "Sold Out",
+    formats: ["Vinyl", '7"', "Single"],
+    marketplace: { lowestPrice: null, currency: "USD", numForSale: 0, discogsUrl: "" },
+  });
+  const items = [forSale, pricey, soldOut];
+
+  it("forSaleOnly keeps only picks with active listings", () => {
+    const out = filterRecommendations(items, filters({ forSaleOnly: true }));
+    expect(out.map((r) => r.artist).sort()).toEqual(["For Sale", "Pricey"]);
+  });
+
+  it("maxPrice drops pricier and unpriced picks", () => {
+    const out = filterRecommendations(items, filters({ maxPrice: 25 }));
+    expect(out.map((r) => r.artist)).toEqual(["For Sale"]);
+  });
+
+  it("format 'albums' keeps full albums, 'singles' keeps the rest", () => {
+    const albums = filterRecommendations(items, filters({ format: "albums" }));
+    expect(albums.map((r) => r.artist).sort()).toEqual(["For Sale", "Pricey"]);
+    const singles = filterRecommendations(items, filters({ format: "singles" }));
+    expect(singles.map((r) => r.artist)).toEqual(["Sold Out"]);
+  });
+
+  it("price_low sorts cheapest first with unpriced last", () => {
+    const out = sortRecommendations(items, "price_low");
+    expect(out.map((r) => r.artist)).toEqual(["For Sale", "Pricey", "Sold Out"]);
+  });
+});
+
 describe("sortRecommendations", () => {
   const items = [
     rec({ artist: "B", year: 1980, communityRating: 3, score: 10 }),
@@ -117,5 +159,32 @@ describe("hasActiveFilters", () => {
     expect(hasActiveFilters(filters({ search: "x" }))).toBe(true);
     expect(hasActiveFilters(filters({ sort: "newest" }))).toBe(true);
     expect(hasActiveFilters(filters({ deepCutOnly: true }))).toBe(true);
+  });
+});
+
+describe("isDeepCut", () => {
+  it("is a deep cut when rating volume is thin, regardless of score", () => {
+    // score is now a normalized quality blend, not an obscurity proxy — a
+    // high score with few ratings should still read as a deep cut.
+    expect(isDeepCut(rec({ score: 90, ratingCount: 10, wantCount: 5000 }))).toBe(
+      true,
+    );
+  });
+
+  it("is a deep cut when few collectors want it, regardless of score", () => {
+    expect(isDeepCut(rec({ score: 90, ratingCount: 500, wantCount: 100 }))).toBe(
+      true,
+    );
+  });
+
+  it("is not a deep cut when both signals show mainstream reach", () => {
+    expect(
+      isDeepCut(rec({ score: 20, ratingCount: 500, wantCount: 5000 })),
+    ).toBe(false);
+  });
+
+  it("treats a fully unknown pick as not-a-deep-cut, but a known low want count still flags it even with unknown rating volume", () => {
+    expect(isDeepCut(rec({ ratingCount: null, wantCount: null }))).toBe(false);
+    expect(isDeepCut(rec({ ratingCount: null, wantCount: 100 }))).toBe(true);
   });
 });

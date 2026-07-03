@@ -11,12 +11,20 @@ import {
   saveTasteProfileToDb,
   getTasteProfileFromDb,
   mergeGuestData,
+  createReservation,
+  getReservationCountForRelease,
 } from "@/lib/db/queries";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
 let counter = 0;
 function uid(prefix = "u") {
   return `${prefix}-${Date.now()}-${counter++}`;
+}
+
+// Release ids also need to be unique per test for the same reason.
+let releaseCounter = 0;
+function rid() {
+  return Date.now() * 1000 + releaseCounter++;
 }
 
 // Note: the throwaway DB file (./data/vitest-test.db) persists across runs.
@@ -124,5 +132,46 @@ describe("mergeGuestData", () => {
     await addToWishlist(user, { discogsReleaseId: 5, title: "Keep", artist: "Z", coverUrl: null, year: null, notes: "" });
     await mergeGuestData(user, user);
     expect(await getWishlist(user)).toHaveLength(1);
+  });
+});
+
+describe("getReservationCountForRelease", () => {
+  it("counts reservations for a release across different users", async () => {
+    const release = rid();
+    expect(await getReservationCountForRelease(release)).toBe(0);
+
+    await createReservation({
+      userId: uid("res"),
+      discogsReleaseId: release,
+      title: "Test Album",
+      artist: "Test Artist",
+      creditsSpent: 50,
+      discogsUrl: "https://discogs.com/x",
+    });
+    await createReservation({
+      userId: uid("res"),
+      discogsReleaseId: release,
+      title: "Test Album",
+      artist: "Test Artist",
+      creditsSpent: 50,
+      discogsUrl: "https://discogs.com/x",
+    });
+
+    expect(await getReservationCountForRelease(release)).toBe(2);
+  });
+
+  it("keeps counts isolated per release", async () => {
+    const releaseA = rid();
+    const releaseB = rid();
+    await createReservation({
+      userId: uid("res"),
+      discogsReleaseId: releaseA,
+      title: "A",
+      artist: "Artist",
+      creditsSpent: 50,
+      discogsUrl: "https://discogs.com/a",
+    });
+    expect(await getReservationCountForRelease(releaseB)).toBe(0);
+    expect(await getReservationCountForRelease(releaseA)).toBe(1);
   });
 });

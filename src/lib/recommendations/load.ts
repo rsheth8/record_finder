@@ -23,6 +23,12 @@ import {
 } from "@/lib/taste/derive-profile";
 import { toSourceError, type SourceError } from "@/lib/errors";
 import { enrichRecommendations } from "@/lib/recommendations/enrich";
+import {
+  dedupeRecommendations,
+  diversifyByGenre,
+} from "@/lib/recommendations/dedupe";
+import { finalizeScores } from "@/lib/recommendations/finalize";
+import { computeFairValue } from "@/lib/recommendations/fair-value";
 import type { Recommendation } from "@/lib/types";
 
 /** How long a cached Spotify listening snapshot stays fresh before we refetch. */
@@ -170,14 +176,14 @@ export async function loadRecommendations(
               "No Spotify-based candidates found — showing quiz-based picks instead.",
             ),
           );
-          recommendations = await getQuizOnlyRecommendations(profile);
+          recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
         }
       } catch (error) {
         degraded.push(toSourceError("spotify", error));
-        recommendations = await getQuizOnlyRecommendations(profile);
+        recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
       }
     } else {
-      recommendations = await getQuizOnlyRecommendations(profile);
+      recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
     }
 
     if (excludedIds.size > 0) {
@@ -186,8 +192,24 @@ export async function loadRecommendations(
       );
     }
 
+    // Collapse duplicate pressings and spread genres before the (rate-limited)
+    // enrichment pass, so we don't spend Discogs calls on dupes and the feed
+    // leads with variety rather than one dominant sound.
+    recommendations = dedupeRecommendations(recommendations);
+    recommendations = diversifyByGenre(recommendations);
+
     if (recommendations.length > 0) {
       recommendations = await enrichRecommendations(recommendations);
+      // Now that ratings/want counts are filled, re-score into a normalized
+      // 0–100 blend so "best match" reflects quality, not just the raw sum.
+      recommendations = finalizeScores(recommendations, profile.deepCutLevel);
+      // And flag batch-relative "good value" picks now that price/want/have
+      // are all filled in.
+      const fairValueByRelease = computeFairValue(recommendations);
+      recommendations = recommendations.map((r) => ({
+        ...r,
+        fairValue: fairValueByRelease.get(r.discogsReleaseId) ?? false,
+      }));
       await cacheRecommendations(userId, recommendations);
     } else {
       degraded.push(

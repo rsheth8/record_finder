@@ -72,6 +72,74 @@ function moodOverlap(albumGenres: string[], moods: QuizMood[]): number {
   return matches;
 }
 
+/** Score delta from the three quiz signals that don't depend on Spotify
+ * listening data — mood, album-vs-singles preference, and deep-cut appetite —
+ * shared so both the Spotify-seeded and quiz-only recommendation paths apply
+ * them consistently. (Quiz-only previously only used these for reason text,
+ * never for ranking.) */
+export function quizAffinityAdjustment(
+  rec: Pick<Recommendation, "genres" | "formats" | "wantCount">,
+  profile: Pick<TasteProfileData, "moods" | "albumPreference" | "deepCutLevel">,
+): number {
+  let delta = 0;
+
+  delta += moodOverlap(rec.genres, profile.moods) * 6;
+
+  if (profile.albumPreference === "full_albums" && !isFullAlbum(rec.formats)) {
+    delta -= 12;
+  } else if (profile.albumPreference === "singles" && isFullAlbum(rec.formats)) {
+    delta -= 4;
+  }
+
+  const popular = rec.wantCount !== null && rec.wantCount >= POPULAR_WANT_THRESHOLD;
+  if (profile.deepCutLevel < 40) {
+    delta += popular ? 8 : 0;
+  } else if (profile.deepCutLevel > 70) {
+    delta += popular ? -8 : 6;
+  }
+
+  return delta;
+}
+
+export interface FeedbackAffinity {
+  likedArtists: Set<string>;
+  dislikedArtists: Set<string>;
+  wishlistArtists: Set<string>;
+}
+
+/** Precomputes lowercased artist-name sets from the user's like/dislike
+ * feedback and wishlist, once per generation, for cheap lookup per candidate. */
+export function buildFeedbackAffinity(
+  feedback: FeedbackEntry[],
+  wishlist: WishlistItem[] = [],
+): FeedbackAffinity {
+  return {
+    likedArtists: new Set(
+      feedback.filter((f) => f.signal === "like").map((f) => f.artist.toLowerCase()),
+    ),
+    dislikedArtists: new Set(
+      feedback.filter((f) => f.signal === "dislike").map((f) => f.artist.toLowerCase()),
+    ),
+    wishlistArtists: new Set(wishlist.map((w) => w.artist.toLowerCase())),
+  };
+}
+
+/** Score delta from the user's own signals about an artist — liked, disliked,
+ * or already wishlisted. Shared so quiz-only recommendations respect feedback
+ * too (previously only the Spotify-seeded path did; quiz-only ignored it
+ * entirely beyond the separate hide/own exclusion filter). */
+export function feedbackAffinityAdjustment(
+  artist: string,
+  affinity: FeedbackAffinity,
+): number {
+  const key = artist.toLowerCase();
+  let delta = 0;
+  if (affinity.likedArtists.has(key)) delta += 15;
+  if (affinity.dislikedArtists.has(key)) delta -= 25;
+  if (affinity.wishlistArtists.has(key)) delta += 15;
+  return delta;
+}
+
 const GENRE_TO_SPOTIFY: Record<QuizGenre, string> = {
   Rock: "rock",
   Alternative: "alt-rock",
@@ -301,17 +369,8 @@ export async function scoreCandidates(
   );
   const { tasteVector, snapshot, wishlist = [], quizAlbumPreferences = [], quizSubGenres = [] } = context;
 
-  const wishlistArtists = new Set(
-    wishlist.map((w) => w.artist.toLowerCase()),
-  );
   const wishlistReleaseIds = new Set(wishlist.map((w) => w.discogsReleaseId));
-
-  const likedArtists = new Set(
-    feedback.filter((f) => f.signal === "like").map((f) => f.artist.toLowerCase()),
-  );
-  const dislikedArtists = new Set(
-    feedback.filter((f) => f.signal === "dislike").map((f) => f.artist.toLowerCase()),
-  );
+  const affinity = buildFeedbackAffinity(feedback, wishlist);
 
   const scored = await mapWithConcurrency(
     candidates.slice(0, 25),
@@ -391,30 +450,13 @@ export async function scoreCandidates(
         }
       }
 
-      score += moodOverlap(enriched.genres, profile.moods) * 6;
-
-      if (profile.albumPreference === "full_albums" && !isFullAlbum(enriched.formats)) {
-        score -= 12;
-      } else if (profile.albumPreference === "singles" && isFullAlbum(enriched.formats)) {
-        score -= 4;
-      }
-
-      const popular =
-        enriched.wantCount !== null && enriched.wantCount >= POPULAR_WANT_THRESHOLD;
-      if (profile.deepCutLevel < 40) {
-        score += popular ? 8 : 0;
-      } else if (profile.deepCutLevel > 70) {
-        score += popular ? -8 : 6;
-      }
+      score += quizAffinityAdjustment(enriched, profile);
 
       if (enriched.communityRating !== null && (enriched.ratingCount ?? 0) >= 5) {
         score += enriched.communityRating * 3;
       }
 
-      const artistKey = album.artist.toLowerCase();
-      if (likedArtists.has(artistKey)) score += 15;
-      if (dislikedArtists.has(artistKey)) score -= 25;
-      if (wishlistArtists.has(artistKey)) score += 15;
+      score += feedbackAffinityAdjustment(album.artist, affinity);
 
       for (const pref of quizAlbumPreferences) {
         if (albumMatchesPreference(album, pref, "winner")) {
@@ -458,16 +500,28 @@ export async function scoreCandidates(
 
 export async function getQuizOnlyRecommendations(
   profile: TasteProfileData,
+  feedback: FeedbackEntry[] = [],
+  wishlist: WishlistItem[] = [],
 ): Promise<Recommendation[]> {
   const results = await browseByGenreDecade(
     profile.genres,
     profile.decades,
     25,
   );
+  const affinity = buildFeedbackAffinity(feedback, wishlist);
 
   return results.map((r, i) => ({
     ...r,
-    score: 50 - i,
+    // Browse rank (want-sorted) is the base signal, plus the same mood /
+    // format / deep-cut / feedback adjustments the Spotify path applies —
+    // previously these quiz preferences only decorated the reason text below,
+    // and like/dislike/wishlist feedback was ignored entirely, for quiz-only
+    // ranking.
+    score:
+      50 -
+      i +
+      quizAffinityAdjustment(r, profile) +
+      feedbackAffinityAdjustment(r.artist, affinity),
     reasons: buildReasons(r, profile, null, {
       id: "",
       name: r.title,

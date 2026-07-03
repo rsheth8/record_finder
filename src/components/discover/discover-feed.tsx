@@ -16,10 +16,22 @@ import { groupRecommendations } from "@/lib/recommendations/group";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
 import { SOURCE_LABELS, type SourceError } from "@/lib/errors";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
+import { useNowMinute } from "@/hooks/use-now-minute";
 import { Disc3, LayoutGrid, RefreshCw, Rows3, ShoppingBag, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "rows" | "grid";
+
+/** "in 42m" / "in 2h 5m" / "refreshing soon" — how long until the cached picks
+ * expire and regenerate on next visit. */
+function formatRefreshHint(expiresAt: Date, now: Date): string {
+  const diffMin = Math.round((expiresAt.getTime() - now.getTime()) / 60_000);
+  if (diffMin <= 0) return "refreshing soon";
+  if (diffMin < 60) return `in ${diffMin}m`;
+  const hours = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
+}
 
 function EmptyShelf() {
   return (
@@ -43,6 +55,7 @@ export function DiscoverFeed({
   error: initialError,
   degraded: initialDegraded = [],
   needsGeneration = false,
+  cacheExpiresAt = null,
 }: {
   recommendations: Recommendation[];
   quizGenres?: QuizGenre[];
@@ -50,6 +63,9 @@ export function DiscoverFeed({
   error?: string | null;
   degraded?: SourceError[];
   needsGeneration?: boolean;
+  /** ISO timestamp for when the cached picks expire and regenerate — used only
+   * to show a "refreshes automatically in Xm" hint, not to drive any refetch. */
+  cacheExpiresAt?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -59,6 +75,7 @@ export function DiscoverFeed({
   const [dismissedDegraded, setDismissedDegraded] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
+  const now = useNowMinute();
   const autoTriggered = useRef(false);
 
   // First visit with no cached picks: generate them client-side (with the loader)
@@ -189,16 +206,23 @@ export function DiscoverFeed({
           </button>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refresh}
-          disabled={loading}
-          className="gap-2"
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          Refresh picks
-        </Button>
+        <div className="flex items-center gap-3">
+          {!loading && cacheExpiresAt && now && (
+            <p className="hidden text-xs text-muted sm:block">
+              Auto-refreshes {formatRefreshHint(new Date(cacheExpiresAt), now)}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={loading}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            Refresh picks
+          </Button>
+        </div>
       </div>
 
       {error && (

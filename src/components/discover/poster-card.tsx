@@ -8,7 +8,7 @@ import { formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { Disc3, ExternalLink, ShoppingBag, Star } from "lucide-react";
+import { Disc3, ExternalLink, ShoppingBag, Sparkles, Star } from "lucide-react";
 
 export function PosterCard({
   rec,
@@ -84,6 +84,13 @@ export function PosterCard({
             <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-foreground shadow-sm backdrop-blur-sm">
               <ShoppingBag className="h-3 w-3 text-success" />
               {priceLabel}
+            </div>
+          )}
+
+          {rec.fairValue && (
+            <div className="absolute left-2 top-9 flex items-center gap-1 rounded-md bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-success shadow-sm backdrop-blur-sm">
+              <Sparkles className="h-3 w-3" />
+              Good value
             </div>
           )}
 

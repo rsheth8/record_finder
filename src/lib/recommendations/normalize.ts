@@ -33,8 +33,18 @@ function normalizeMarketplace(
 }
 
 export function normalizeRecommendation(rec: Recommendation): Recommendation {
-  if (!rec.marketplace) return rec;
-  return { ...rec, marketplace: normalizeMarketplace(rec.marketplace) };
+  // Legacy cached picks predate some fields. The discover feed groups and
+  // renders these without guarding (e.g. iterating `genres`, reading
+  // `reasons[0]`), so coerce the array fields back to arrays before they reach
+  // the UI — otherwise a stale cache entry crashes the whole section.
+  const normalized: Recommendation = {
+    ...rec,
+    genres: Array.isArray(rec.genres) ? rec.genres : [],
+    formats: Array.isArray(rec.formats) ? rec.formats : [],
+    reasons: Array.isArray(rec.reasons) ? rec.reasons : [],
+  };
+  if (!normalized.marketplace) return normalized;
+  return { ...normalized, marketplace: normalizeMarketplace(normalized.marketplace) };
 }
 
 export function normalizeRecommendations(recs: Recommendation[]): Recommendation[] {

@@ -109,6 +109,8 @@ describe("buildFeedbackAffinity + feedbackAffinityAdjustment", () => {
       year: 2000,
       notes: "",
       addedAt: new Date(),
+      priceAtAdd: null,
+      lastAlertedPrice: null,
     },
   ];
 

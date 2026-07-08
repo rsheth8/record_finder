@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { getWishlist } from "@/lib/db/queries";
+import { getWishlist, getLatestPriceSnapshot } from "@/lib/db/queries";
 import { WishlistCard } from "@/components/album/wishlist-button";
 import { Button } from "@/components/ui/button";
 import { SignInPrompt } from "@/components/auth/sign-in-prompt";
 import { auth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Disc3, Heart } from "lucide-react";
+import { PRICE_DROP_THRESHOLD } from "@/lib/commerce/price-alerts";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,25 @@ export default async function WishlistPage() {
     );
   }
 
-  const items = await getWishlist(session.user.id);
+  const wishlist = await getWishlist(session.user.id);
+
+  // A pure DB read per item (no Discogs calls) — cheap even N+1, since
+  // wishlists are small and this only runs on page load, not per request
+  // elsewhere. Same "meaningful drop" bar as the email alerts, so the badge
+  // here and what triggers an email agree on what counts as a real drop.
+  const items = await Promise.all(
+    wishlist.map(async (item) => {
+      const latest = await getLatestPriceSnapshot(item.discogsReleaseId);
+      const baseline = item.lastAlertedPrice ?? item.priceAtAdd;
+      const priceDrop =
+        baseline != null &&
+        latest?.lowestPrice != null &&
+        latest.lowestPrice <= baseline * (1 - PRICE_DROP_THRESHOLD)
+          ? { from: baseline, to: latest.lowestPrice }
+          : null;
+      return { ...item, priceDrop };
+    }),
+  );
 
   return (
     <div className="space-y-8">

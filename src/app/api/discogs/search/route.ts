@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchCatalog } from "@/lib/discogs/client";
 import { enrichRecommendations } from "@/lib/recommendations/enrich";
-import { computeFairValue } from "@/lib/recommendations/fair-value";
+import {
+  computeFairValue,
+  applyHistoricalFairValue,
+  FAIR_VALUE_HISTORY_LOOKBACK_DAYS,
+} from "@/lib/recommendations/fair-value";
+import { getPriceHistoryStatsForReleases } from "@/lib/db/queries";
 
 const MAX_QUERY_LENGTH = 100;
 
@@ -32,7 +37,12 @@ export async function GET(request: NextRequest) {
   try {
     const { results, pagination } = await searchCatalog(q, page);
     const enriched = await enrichRecommendations(results);
-    const fairValueMap = computeFairValue(enriched);
+    let fairValueMap = computeFairValue(enriched);
+    const historyByRelease = await getPriceHistoryStatsForReleases(
+      enriched.map((r) => r.discogsReleaseId),
+      FAIR_VALUE_HISTORY_LOOKBACK_DAYS,
+    );
+    fairValueMap = applyHistoricalFairValue(enriched, fairValueMap, historyByRelease);
     const withFairValue = enriched.map((r) => ({
       ...r,
       fairValue: fairValueMap.get(r.discogsReleaseId) ?? false,

@@ -219,4 +219,9 @@ export interface WishlistItem {
   year: number | null;
   notes: string;
   addedAt: Date;
+  /** Captured once at add-time via a marketplace lookup; null if that lookup
+   * failed or the item was added before this field existed. */
+  priceAtAdd: number | null;
+  /** The price we last emailed the user about — see markWishlistAlerted. */
+  lastAlertedPrice: number | null;
 }

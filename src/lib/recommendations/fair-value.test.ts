@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeFairValue } from "@/lib/recommendations/fair-value";
+import { computeFairValue, applyHistoricalFairValue } from "@/lib/recommendations/fair-value";
 import type { Recommendation } from "@/lib/types";
 
 let idCounter = 1;
@@ -116,5 +116,50 @@ describe("computeFairValue", () => {
   it("returns an empty map when no picks have pricing", () => {
     const batch = [rec({}), rec({})];
     expect(computeFairValue(batch).size).toBe(0);
+  });
+});
+
+describe("applyHistoricalFairValue", () => {
+  it("overrides to true when the current price is well below the release's own historical median", () => {
+    const item = priced({ marketplace: { lowestPrice: 20, currency: "USD", numForSale: 1, discogsUrl: "" } });
+    const batchFlags = new Map([[item.discogsReleaseId, false]]);
+    const history = new Map([[item.discogsReleaseId, { count: 5, median: 40 }]]);
+
+    const upgraded = applyHistoricalFairValue([item], batchFlags, history);
+    expect(upgraded.get(item.discogsReleaseId)).toBe(true);
+  });
+
+  it("overrides to false when the current price isn't meaningfully below its own median", () => {
+    const item = priced({ marketplace: { lowestPrice: 38, currency: "USD", numForSale: 1, discogsUrl: "" } });
+    const batchFlags = new Map([[item.discogsReleaseId, true]]);
+    const history = new Map([[item.discogsReleaseId, { count: 5, median: 40 }]]);
+
+    const upgraded = applyHistoricalFairValue([item], batchFlags, history);
+    expect(upgraded.get(item.discogsReleaseId)).toBe(false);
+  });
+
+  it("keeps the batch-relative flag when there isn't enough history yet", () => {
+    const item = priced({ marketplace: { lowestPrice: 5, currency: "USD", numForSale: 1, discogsUrl: "" } });
+    const batchFlags = new Map([[item.discogsReleaseId, true]]);
+    // Only 2 snapshots — below the minimum needed to trust a median.
+    const history = new Map([[item.discogsReleaseId, { count: 2, median: 10 }]]);
+
+    const upgraded = applyHistoricalFairValue([item], batchFlags, history);
+    expect(upgraded.get(item.discogsReleaseId)).toBe(true);
+  });
+
+  it("keeps the batch-relative flag for a release with no history at all", () => {
+    const item = priced({});
+    const batchFlags = new Map([[item.discogsReleaseId, true]]);
+    const upgraded = applyHistoricalFairValue([item], batchFlags, new Map());
+    expect(upgraded.get(item.discogsReleaseId)).toBe(true);
+  });
+
+  it("does not crash or flag a release with history but no current price", () => {
+    const item = rec({});
+    const batchFlags = new Map<number, boolean>();
+    const history = new Map([[item.discogsReleaseId, { count: 5, median: 40 }]]);
+    const upgraded = applyHistoricalFairValue([item], batchFlags, history);
+    expect(upgraded.has(item.discogsReleaseId)).toBe(false);
   });
 });

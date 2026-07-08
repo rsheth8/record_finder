@@ -7,6 +7,7 @@ import {
   getUserFeedback,
   getWishlist,
   getQuizResponses,
+  getPriceHistoryStatsForReleases,
 } from "@/lib/db/queries";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import { fetchDiscoveryAlbums } from "@/lib/spotify/client";
@@ -28,7 +29,11 @@ import {
   diversifyByGenre,
 } from "@/lib/recommendations/dedupe";
 import { finalizeScores } from "@/lib/recommendations/finalize";
-import { computeFairValue } from "@/lib/recommendations/fair-value";
+import {
+  computeFairValue,
+  applyHistoricalFairValue,
+  FAIR_VALUE_HISTORY_LOOKBACK_DAYS,
+} from "@/lib/recommendations/fair-value";
 import type { Recommendation } from "@/lib/types";
 
 /** How long a cached Spotify listening snapshot stays fresh before we refetch. */
@@ -204,8 +209,20 @@ export async function loadRecommendations(
       // 0–100 blend so "best match" reflects quality, not just the raw sum.
       recommendations = finalizeScores(recommendations, profile.deepCutLevel);
       // And flag batch-relative "good value" picks now that price/want/have
-      // are all filled in.
-      const fairValueByRelease = computeFairValue(recommendations);
+      // are all filled in — upgraded to a real historical signal wherever
+      // price_history has enough data (only ever true for releases someone
+      // has wishlisted; see fair-value.ts and getPriceHistoryStatsForReleases).
+      let fairValueByRelease = computeFairValue(recommendations);
+      const releaseIds = recommendations.map((r) => r.discogsReleaseId);
+      const historyByRelease = await getPriceHistoryStatsForReleases(
+        releaseIds,
+        FAIR_VALUE_HISTORY_LOOKBACK_DAYS,
+      );
+      fairValueByRelease = applyHistoricalFairValue(
+        recommendations,
+        fairValueByRelease,
+        historyByRelease,
+      );
       recommendations = recommendations.map((r) => ({
         ...r,
         fairValue: fairValueByRelease.get(r.discogsReleaseId) ?? false,

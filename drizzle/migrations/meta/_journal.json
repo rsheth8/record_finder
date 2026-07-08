@@ -36,6 +36,13 @@
       "when": 1782970000000,
       "tag": "0004_taste_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783495032672,
+      "tag": "0005_peaceful_scarecrow",
+      "breakpoints": true
     }
   ]
 }

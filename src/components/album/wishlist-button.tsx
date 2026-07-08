@@ -7,7 +7,9 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { MarketplaceBadge } from "@/components/album/marketplace-badge";
-import { Heart } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { formatUsd } from "@/lib/commerce/pricing";
+import { Heart, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function WishlistButton({
@@ -115,6 +117,7 @@ export function WishlistCard({
     artist: string;
     coverUrl: string | null;
     year: number | null;
+    priceDrop?: { from: number; to: number } | null;
   };
 }) {
   return (
@@ -141,8 +144,14 @@ export function WishlistCard({
           {item.artist}
           {item.year ? ` · ${item.year}` : ""}
         </p>
-        <div className="mt-1">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
           <MarketplaceBadge discogsReleaseId={item.discogsReleaseId} />
+          {item.priceDrop && (
+            <Badge variant="success" className="gap-1">
+              <TrendingDown className="h-3 w-3" />
+              Down from {formatUsd(item.priceDrop.from)}
+            </Badge>
+          )}
         </div>
       </div>
       <WishlistRemoveButton discogsReleaseId={item.discogsReleaseId} />

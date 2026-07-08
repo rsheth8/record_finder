@@ -4,8 +4,10 @@ import {
   getWishlist,
   addToWishlist,
   removeFromWishlist,
+  setWishlistPriceAtAdd,
 } from "@/lib/db/queries";
 import { addWishlistSchema } from "@/lib/validation/wishlist";
+import { getMarketplaceStats } from "@/lib/discogs/client";
 
 export async function GET() {
   const session = await auth();
@@ -38,6 +40,13 @@ export async function POST(request: NextRequest) {
     year: body.year ?? null,
     notes: body.notes ?? "",
   });
+
+  // Bootstraps price history immediately on add rather than waiting for the
+  // next cron cycle, and gives price-drop alerts a baseline to compare
+  // against. getMarketplaceStats() never throws (falls back to nulls
+  // internally), so a Discogs hiccup here never breaks adding to wishlist.
+  const stats = await getMarketplaceStats(body.discogsReleaseId);
+  await setWishlistPriceAtAdd(session.user.id, body.discogsReleaseId, stats?.lowestPrice ?? null);
 
   return NextResponse.json(await getWishlist(session.user.id));
 }

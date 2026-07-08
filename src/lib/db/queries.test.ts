@@ -13,6 +13,14 @@ import {
   mergeGuestData,
   createReservation,
   getReservationCountForRelease,
+  ensureUser,
+  insertPriceSnapshot,
+  getLatestPriceSnapshot,
+  getPriceHistoryStatsForReleases,
+  getReleaseIdsNeedingSnapshot,
+  setWishlistPriceAtAdd,
+  getWishlistAlertCandidates,
+  markWishlistAlerted,
 } from "@/lib/db/queries";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
@@ -173,5 +181,136 @@ describe("getReservationCountForRelease", () => {
     });
     expect(await getReservationCountForRelease(releaseB)).toBe(0);
     expect(await getReservationCountForRelease(releaseA)).toBe(1);
+  });
+});
+
+describe("price history", () => {
+  it("round-trips a snapshot and reads back the latest one", async () => {
+    const release = rid();
+    await insertPriceSnapshot(release, 25.5, "USD", 3);
+    const latest = await getLatestPriceSnapshot(release);
+    expect(latest?.lowestPrice).toBe(25.5);
+  });
+
+  it("returns the most recently inserted snapshot when there are several", async () => {
+    const release = rid();
+    await insertPriceSnapshot(release, 40, "USD", 2);
+    await insertPriceSnapshot(release, 30, "USD", 4);
+    const latest = await getLatestPriceSnapshot(release);
+    expect(latest?.lowestPrice).toBe(30);
+  });
+
+  it("returns null for a release with no snapshots", async () => {
+    expect(await getLatestPriceSnapshot(rid())).toBeNull();
+  });
+
+  it("computes count and median across multiple releases in one call", async () => {
+    const releaseA = rid();
+    const releaseB = rid();
+    for (const price of [10, 20, 30]) {
+      await insertPriceSnapshot(releaseA, price, "USD", 1);
+    }
+    await insertPriceSnapshot(releaseB, 100, "USD", 1);
+
+    const stats = await getPriceHistoryStatsForReleases([releaseA, releaseB], 30);
+    expect(stats.get(releaseA)).toEqual({ count: 3, median: 20 });
+    expect(stats.get(releaseB)).toEqual({ count: 1, median: 100 });
+  });
+
+  it("omits a release with no priced snapshots from the stats map", async () => {
+    const release = rid();
+    await insertPriceSnapshot(release, null, "USD", 0);
+    const stats = await getPriceHistoryStatsForReleases([release], 30);
+    expect(stats.has(release)).toBe(false);
+  });
+
+  it("orders never-snapshotted releases before ones with a stale snapshot", async () => {
+    const user = uid("snapshot-order");
+    const neverSnapshotted = rid();
+    const staleSnapshot = rid();
+    await addToWishlist(user, {
+      discogsReleaseId: neverSnapshotted,
+      title: "Never",
+      artist: "X",
+      coverUrl: null,
+      year: null,
+      notes: "",
+    });
+    await addToWishlist(user, {
+      discogsReleaseId: staleSnapshot,
+      title: "Stale",
+      artist: "X",
+      coverUrl: null,
+      year: null,
+      notes: "",
+    });
+    await insertPriceSnapshot(staleSnapshot, 20, "USD", 1);
+
+    const ordered = await getReleaseIdsNeedingSnapshot(1000);
+    const neverIdx = ordered.indexOf(neverSnapshotted);
+    const staleIdx = ordered.indexOf(staleSnapshot);
+    expect(neverIdx).toBeGreaterThanOrEqual(0);
+    expect(staleIdx).toBeGreaterThanOrEqual(0);
+    expect(neverIdx).toBeLessThan(staleIdx);
+  });
+
+  it("captures priceAtAdd and lets it be read back via getWishlist", async () => {
+    const user = uid("price-at-add");
+    const release = rid();
+    await addToWishlist(user, {
+      discogsReleaseId: release,
+      title: "T",
+      artist: "A",
+      coverUrl: null,
+      year: null,
+      notes: "",
+    });
+    expect((await getWishlist(user))[0].priceAtAdd).toBeNull();
+
+    await setWishlistPriceAtAdd(user, release, 42.5);
+    expect((await getWishlist(user))[0].priceAtAdd).toBe(42.5);
+  });
+
+  describe("getWishlistAlertCandidates + markWishlistAlerted", () => {
+    it("surfaces a wishlist item with its latest price and the owner's email", async () => {
+      const user = uid("alert-candidate");
+      const release = rid();
+      await ensureUser(user, "collector@example.com");
+      await addToWishlist(user, {
+        discogsReleaseId: release,
+        title: "T",
+        artist: "A",
+        coverUrl: null,
+        year: null,
+        notes: "",
+      });
+      await setWishlistPriceAtAdd(user, release, 40);
+      await insertPriceSnapshot(release, 22, "USD", 1);
+
+      const candidates = await getWishlistAlertCandidates();
+      const mine = candidates.find((c) => c.discogsReleaseId === release);
+      expect(mine).toMatchObject({
+        userId: user,
+        email: "collector@example.com",
+        priceAtAdd: 40,
+        latestPrice: 22,
+      });
+    });
+
+    it("updates lastAlertedPrice so it's reflected on the next read", async () => {
+      const user = uid("mark-alerted");
+      const release = rid();
+      await addToWishlist(user, {
+        discogsReleaseId: release,
+        title: "T",
+        artist: "A",
+        coverUrl: null,
+        year: null,
+        notes: "",
+      });
+      const [item] = await getWishlist(user);
+      await markWishlistAlerted(item.id, 22);
+      expect((await getWishlist(user))[0].lastAlertedPrice).toBe(22);
+    });
   });
 });

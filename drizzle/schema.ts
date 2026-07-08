@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const tasteProfile = sqliteTable("taste_profile", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -51,8 +51,31 @@ export const wishlistItems = sqliteTable("wishlist_items", {
   year: integer("year"),
   notes: text("notes").default(""),
   addedAt: integer("added_at", { mode: "timestamp" }).notNull(),
+  // Captured once at add-time; compared against price_history to power the
+  // "price dropped" badge and email alerts. Null for items added before this
+  // column existed, or if the Discogs marketplace call failed at add-time.
+  priceAtAdd: real("price_at_add"),
+  // The price we last emailed the user about — only a *further* drop below
+  // this triggers another alert, so a price that stays low isn't re-alerted
+  // every day. Null until the first alert is sent.
+  lastAlertedPrice: real("last_alerted_price"),
 }, (t) => ({
   userReleaseIdx: uniqueIndex("wishlist_user_release_idx").on(t.userId, t.discogsReleaseId),
+}));
+
+// Daily price snapshots for wishlisted releases (deduped across users — see
+// getReleaseIdsNeedingSnapshot), powering real (non-batch-relative) fair-value
+// and wishlist price-drop alerts. Populated by the /api/cron/snapshot-prices
+// job and an immediate snapshot on wishlist add.
+export const priceHistory = sqliteTable("price_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  lowestPrice: real("lowest_price"),
+  currency: text("currency").notNull().default("USD"),
+  numForSale: integer("num_for_sale").notNull().default(0),
+  snapshotAt: integer("snapshot_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  releaseIdx: index("price_history_release_idx").on(t.discogsReleaseId, t.snapshotAt),
 }));
 
 export const recommendationCache = sqliteTable("recommendation_cache", {

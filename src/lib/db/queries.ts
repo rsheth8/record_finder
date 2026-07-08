@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   tasteProfile,
   spotifySnapshot,
@@ -9,6 +9,7 @@ import {
   creditLedger,
   orders,
   quizResponses,
+  priceHistory,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
@@ -244,12 +245,14 @@ export async function getWishlist(userId: string): Promise<WishlistItem[]> {
     year: r.year,
     notes: r.notes ?? "",
     addedAt: r.addedAt,
+    priceAtAdd: r.priceAtAdd,
+    lastAlertedPrice: r.lastAlertedPrice,
   }));
 }
 
 export async function addToWishlist(
   userId: string,
-  item: Omit<WishlistItem, "id" | "addedAt">,
+  item: Omit<WishlistItem, "id" | "addedAt" | "priceAtAdd" | "lastAlertedPrice">,
 ) {
   await ensureDb();
   await db
@@ -677,4 +680,175 @@ export async function getReservationCountForRelease(
     .where(eq(orders.discogsReleaseId, discogsReleaseId))
     .get();
   return result?.count ?? 0;
+}
+
+// --- Price history -----------------------------------------------------
+// Powers real (non-batch-relative) fair value and wishlist price-drop alerts.
+// Tracking is scoped to wishlisted releases only (deduped across users) —
+// see handoff.md "Catalog search" era notes for why: bounded by real
+// engagement, unlike snapshotting everything ever shown in Discover/Search.
+
+/** Distinct wishlisted releases due for a snapshot, never-snapshotted and
+ * least-recently-snapshotted first (SQLite sorts NULL first in ASC order, so
+ * a release with no history yet always outranks one with stale history).
+ * Capped by `limit` so one cron run's Discogs call count stays bounded no
+ * matter how large the wishlist set grows — see scoreCandidates()'s
+ * `candidates.slice(0, 25)` for the same rate-limit-aware capping pattern. */
+export async function getReleaseIdsNeedingSnapshot(limit: number): Promise<number[]> {
+  await ensureDb();
+  const rows = await db
+    .select({
+      discogsReleaseId: wishlistItems.discogsReleaseId,
+      lastSnapshot: sql<number | null>`max(${priceHistory.snapshotAt})`,
+    })
+    .from(wishlistItems)
+    .leftJoin(priceHistory, eq(priceHistory.discogsReleaseId, wishlistItems.discogsReleaseId))
+    .groupBy(wishlistItems.discogsReleaseId)
+    .orderBy(sql`max(${priceHistory.snapshotAt}) asc`)
+    .limit(limit)
+    .all();
+  return rows.map((r) => r.discogsReleaseId);
+}
+
+export async function insertPriceSnapshot(
+  discogsReleaseId: number,
+  lowestPrice: number | null,
+  currency: string,
+  numForSale: number,
+): Promise<void> {
+  await ensureDb();
+  await db.insert(priceHistory).values({
+    discogsReleaseId,
+    lowestPrice,
+    currency,
+    numForSale,
+    snapshotAt: new Date(),
+  });
+}
+
+export async function getLatestPriceSnapshot(
+  discogsReleaseId: number,
+): Promise<{ lowestPrice: number | null; snapshotAt: Date } | null> {
+  await ensureDb();
+  const row = await db
+    .select({ lowestPrice: priceHistory.lowestPrice, snapshotAt: priceHistory.snapshotAt })
+    .from(priceHistory)
+    .where(eq(priceHistory.discogsReleaseId, discogsReleaseId))
+    .orderBy(desc(priceHistory.snapshotAt))
+    .limit(1)
+    .get();
+  return row ?? null;
+}
+
+/** Batched per-release {count, median} of lowestPrice over the last `sinceDays`
+ * — one query for a whole Discover/Search batch rather than N+1. Median (not
+ * mean) so a single outlier listing doesn't skew the "is this actually cheap
+ * for this record" baseline. Releases with no priced snapshots in the window
+ * are simply absent from the returned map. */
+export async function getPriceHistoryStatsForReleases(
+  discogsReleaseIds: number[],
+  sinceDays: number,
+): Promise<Map<number, { count: number; median: number }>> {
+  await ensureDb();
+  if (discogsReleaseIds.length === 0) return new Map();
+
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      discogsReleaseId: priceHistory.discogsReleaseId,
+      lowestPrice: priceHistory.lowestPrice,
+    })
+    .from(priceHistory)
+    .where(
+      and(
+        inArray(priceHistory.discogsReleaseId, discogsReleaseIds),
+        gte(priceHistory.snapshotAt, since),
+      ),
+    )
+    .all();
+
+  const pricesByRelease = new Map<number, number[]>();
+  for (const row of rows) {
+    if (row.lowestPrice == null) continue;
+    const list = pricesByRelease.get(row.discogsReleaseId) ?? [];
+    list.push(row.lowestPrice);
+    pricesByRelease.set(row.discogsReleaseId, list);
+  }
+
+  const stats = new Map<number, { count: number; median: number }>();
+  for (const [id, prices] of pricesByRelease) {
+    prices.sort((a, b) => a - b);
+    const mid = Math.floor(prices.length / 2);
+    const median =
+      prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
+    stats.set(id, { count: prices.length, median });
+  }
+  return stats;
+}
+
+export async function setWishlistPriceAtAdd(
+  userId: string,
+  discogsReleaseId: number,
+  price: number | null,
+): Promise<void> {
+  await ensureDb();
+  await db
+    .update(wishlistItems)
+    .set({ priceAtAdd: price })
+    .where(
+      and(eq(wishlistItems.userId, userId), eq(wishlistItems.discogsReleaseId, discogsReleaseId)),
+    );
+}
+
+export interface WishlistAlertCandidate {
+  wishlistItemId: number;
+  userId: string;
+  email: string | null;
+  discogsReleaseId: number;
+  title: string;
+  artist: string;
+  priceAtAdd: number | null;
+  lastAlertedPrice: number | null;
+  latestPrice: number | null;
+}
+
+/** Raw per-wishlist-item price data for every tracked item, for the cron job
+ * to filter through the pure `findPriceDropAlerts()` (src/lib/commerce/price-alerts.ts)
+ * before emailing. N+1 on `getLatestPriceSnapshot` is deliberate: these are
+ * fast indexed local reads (not rate-limited Discogs calls), and this only
+ * runs once daily, not per page load. */
+export async function getWishlistAlertCandidates(): Promise<WishlistAlertCandidate[]> {
+  await ensureDb();
+  const rows = await db
+    .select({
+      wishlistItemId: wishlistItems.id,
+      userId: wishlistItems.userId,
+      email: users.email,
+      discogsReleaseId: wishlistItems.discogsReleaseId,
+      title: wishlistItems.title,
+      artist: wishlistItems.artist,
+      priceAtAdd: wishlistItems.priceAtAdd,
+      lastAlertedPrice: wishlistItems.lastAlertedPrice,
+    })
+    .from(wishlistItems)
+    .leftJoin(users, eq(users.id, wishlistItems.userId))
+    .all();
+
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      latestPrice: (await getLatestPriceSnapshot(row.discogsReleaseId))?.lowestPrice ?? null,
+    })),
+  );
+}
+
+export async function markWishlistAlerted(
+  wishlistItemId: number,
+  price: number,
+): Promise<void> {
+  await ensureDb();
+  await db
+    .update(wishlistItems)
+    .set({ lastAlertedPrice: price })
+    .where(eq(wishlistItems.id, wishlistItemId));
 }

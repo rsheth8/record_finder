@@ -4,7 +4,7 @@ Last updated: 2026-07-08
 
 ## What this is
 
-**Record Finder** is a Next.js vinyl discovery app. Anyone can search the full Discogs vinyl catalog with no account (`/search`), or take a taste quiz (no account required) to get Discogs-backed album recommendations scored to their listening history and preferences, optionally sharpened by connecting Spotify. Album pages show pressing details (including matrix/runout and mastering credits), a cross-pressing comparison, marketplace pricing, a fair-value signal, wishlist, feedback, and a credits-based reservation flow for concierge queue spots with a lightweight scarcity indicator.
+**Record Finder** is a Next.js vinyl discovery app. Anyone can search the full Discogs vinyl catalog with no account (`/search`), or take a taste quiz (no account required) to get Discogs-backed album recommendations scored to their listening history and preferences, optionally sharpened by connecting Spotify. Album pages show pressing details (including matrix/runout and mastering credits), a cross-pressing comparison, marketplace pricing, a fair-value signal (now backed by real price history for wishlisted releases — see "Price history & deals"), wishlist with price-drop email alerts, feedback, and a credits-based reservation flow for concierge queue spots with a lightweight scarcity indicator.
 
 **North star:** be the best vinyl-searching site and get people the best deals on vinyl. **North star for recommendations:** picks that feel like a friend who knows your taste — not generic genre browsing. **North star for differentiation:** build things on the Spotify-listening ↔ Discogs-vinyl bridge that a plain marketplace (Discogs) or a blind curated subscription (VMP-style) structurally can't offer — see "Vinyl-native differentiation features" below.
 
@@ -17,6 +17,8 @@ Last updated: 2026-07-08
 | Auth | NextAuth v5 — Spotify OAuth only |
 | DB | SQLite via Drizzle + libSQL / `@libsql/client` (`file:./data/record_finder.db` locally; Turso optional in prod) |
 | APIs | Discogs (vinyl source of truth), Spotify, Last.fm, MusicBrainz, Apple Music (iTunes Search) |
+| Email | Resend (price-drop alerts only; no other transactional email yet) |
+| Scheduled jobs | Vercel Cron (`vercel.json`) — first cron job in this repo, see "Price history & deals" |
 | Tests | Vitest |
 
 ## User flows
@@ -163,10 +165,24 @@ Four features built entirely on data/infra already in place (no new schema, no n
 Full-catalog Discogs vinyl search, guest-accessible (no quiz, no sign-in) — first-class entry point per the "best vinyl searching site" north star, distinct from Discover's filter box (which only searches within a signed-in user's ~20-25 personalized recommendations). There was previously a dead, unused API route at this path that this replaced; nothing in the UI called it before.
 
 - **`searchCatalog(query, page)`** (`src/lib/discogs/client.ts`) — hits `/database/search` with relevance-default sort (not `sort=want`, so a literal title/artist search surfaces the actual match first), page size fixed small (10) since every result costs one more Discogs call to enrich under the shared 1-req/sec throttle. Returns results in the existing `Recommendation` shape (via a private `searchResultToSearchHit`, parallel to but distinct from `searchResultToRecommendation` — a search hit has no personalized "reason") plus a `SearchPagination` envelope (`src/lib/types.ts`).
-- **`GET /api/discogs/search`** — rewritten (previously raw Discogs JSON passthrough); validates and clamps the query, enriches the page with `enrichRecommendations()` (price/rating), and flags `computeFairValue()` on that page-batch — same page-relative "good value" framing Discover already uses, not real historical fair value (see "True price-history" below). `maxDuration = 30`, matching `/api/recommendations`'s precedent for a rate-limited Discogs pass.
+- **`GET /api/discogs/search`** — rewritten (previously raw Discogs JSON passthrough); validates and clamps the query, enriches the page with `enrichRecommendations()` (price/rating), and flags fair value on that page-batch — batch-relative by default, upgraded to real historical fair value wherever price history exists (see "Price history & deals" below). `maxDuration = 30`, matching `/api/recommendations`'s precedent for a rate-limited Discogs pass.
 - **`/search` page + `SearchFeed`** (`src/components/search/search-feed.tsx`) — input, `VinylLoader` (~10-12s for a full page with price/rating — a conscious latency-for-richness tradeoff, not an oversight), `DiscoverGrid` reused as-is for results, prev/next pagination. No filters, no genre grouping, no view-mode toggle — deliberately thinner than Discover.
 - **Nav** — added to both `app-nav.tsx` (desktop) and `mobile-nav.tsx` (now 5 tabs) as a permanent, always-visible entry point, and to Discover's empty-filter-result state as a "Search all vinyl for '...'" bridge link.
 - **Known gap, accepted for v1:** no rate limiting or abuse protection exists for this now-public route beyond the shared Discogs throttle (which protects the app's Discogs quota, not against one client monopolizing it). Quiz-gating was incidentally serving as informal abuse protection before this. If abuse becomes a real problem, add a per-IP/session soft limit (no Redis/KV in this repo today — would need an in-memory or DB-backed sliding window).
+
+## Price history & deals (2026-07-08)
+
+Real (non-batch-relative) fair value and wishlist price-drop email alerts — the flagship "best deals" feature per the north star, and this repo's first scheduled job. Previously blocked on two things (see the old "Deferred" entry): no price-history data, and no cron infrastructure. Both now exist, scoped deliberately narrow for v1.
+
+**Tracking scope — wishlist items only**, deduped across users. Not every release ever shown in Discover/Search — that would be unbounded and mostly wasted (most shown records are never revisited). This means: real fair value only kicks in for releases someone has already wishlisted; everything else still gets the original batch-relative badge. This compounds over time as more records get wishlisted and accumulate history — it's an honest tradeoff, not a regression.
+
+- **Schema** (`drizzle/schema.ts`, migration `0005_peaceful_scarecrow.sql`) — new `price_history` table (`discogsReleaseId`, `lowestPrice`, `currency`, `numForSale`, `snapshotAt`, indexed on `(discogsReleaseId, snapshotAt)`); `wishlist_items` gains `priceAtAdd` (captured once, at add-time) and `lastAlertedPrice` (the price we last emailed about — only a *further* drop below it re-alerts, so a price that stays low isn't nagged about daily).
+- **`GET /api/cron/snapshot-prices`** (new) — the daily job. Auth via Vercel's real cron convention (`Authorization: Bearer $CRON_SECRET`, checked in the route — **not** a custom header). `getReleaseIdsNeedingSnapshot()` (`src/lib/db/queries.ts`) picks up to 100 releases per run, never-snapshotted and stalest-first, so the per-invocation Discogs call count stays bounded regardless of how large the wishlist set grows (round-robins through a backlog over multiple days if it exceeds the cap). Then computes price-drop alerts and emails once per affected user (not once per item). `maxDuration = 120`.
+- **`vercel.json`** (new, repo had none) — `{ "crons": [{ "path": "/api/cron/snapshot-prices", "schedule": "0 10 * * *" }] }`. The schedule only actually fires once deployed to Vercel with `CRON_SECRET` set in the project's env vars — this is still a local-dev-only project (no `.vercel/`), so this ships the mechanism; activation is a deploy-time step.
+- **Real fair value** — `applyHistoricalFairValue()` (`src/lib/recommendations/fair-value.ts`) overrides the existing batch-relative `computeFairValue()` flag wherever a release has ≥3 price-history snapshots: good value if the current price is ≥15% below *that release's own* historical median, not "cheap relative to today's other 20 picks." Wired into both `load.ts` (Discover) and `/api/discogs/search`, via a batched, zero-Discogs-call DB read (`getPriceHistoryStatsForReleases()`) — the upgrade is free at read time; all the Discogs cost is in the daily snapshot job.
+- **Price-drop alerts** — `findPriceDropAlerts()` / `groupAlertsByUser()` (`src/lib/commerce/price-alerts.ts`, pure and unit-tested) apply a 10% drop threshold (`PRICE_DROP_THRESHOLD`) against `lastAlertedPrice ?? priceAtAdd`. Email content is a pure, tested template (`src/lib/email/price-drop-alert.ts`); the actual Resend call is a thin, untested I/O wrapper (`src/lib/email/send.ts`) that logs and skips (doesn't throw) if `RESEND_API_KEY` is unset — a missing email key never stops price snapshotting. The wishlist page shows the same signal as a "↓ Down from $X" badge (`WishlistCard`, `wishlist-button.tsx`), computed server-side from data already in the DB — no extra Discogs call to render it.
+- **Important caveat:** like any transactional email provider, Resend requires a verified sending domain to email real users — without one, only the developer's own Resend-verified test address can receive mail. This is a one-time setup outside this repo, not a code gap.
+- **`addToWishlist`'s API route** (`POST /api/wishlist`) now also calls `getMarketplaceStats()` once and sets `priceAtAdd` — bootstraps a baseline immediately rather than waiting for the next cron cycle.
 
 ## Polish & hardening pass (2026-07-08)
 
@@ -182,7 +198,7 @@ Added tests for previously-uncovered pure logic: `group.ts` (including a regress
 
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0004_taste_intelligence.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0005_peaceful_scarecrow.sql`.
 
 | Table | Purpose |
 |-------|---------|
@@ -191,10 +207,13 @@ Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0004_taste_in
 | `spotify_snapshot` | Full listening snapshot + derived `taste_vector` |
 | `recommendation_cache` | Scored `Recommendation[]`, 1h expiry |
 | `recommendation_feedback` | like / dislike / own / hide per release |
-| `wishlist_items` | Saved vinyl releases |
+| `wishlist_items` | Saved vinyl releases + `priceAtAdd`/`lastAlertedPrice` for price-drop alerts |
+| `price_history` | Daily price snapshots for wishlisted releases (deduped across users) |
 | `users`, `credit_ledger`, `orders` | Auth + credits + reservations |
 
 Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/index.ts`.
+
+**Note on migration history:** `0004_taste_intelligence.sql` predates a snapshot file (`drizzle/migrations/meta/0004_snapshot.json` is missing — it was hand-authored rather than generated). Running `npm run db:generate` after `0004` will therefore bundle old, already-applied statements into the new migration's diff (drizzle-kit falls back to diffing from `0003`'s snapshot). If this happens again, hand-trim the generated file down to just the genuinely new statements before committing — same as was done for `0005`.
 
 ## Key files
 
@@ -224,6 +243,8 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Discover cards / carousels | `src/components/discover/poster-card.tsx`, `carousel-row.tsx`, `discover-grid.tsx` |
 | Catalog search | `src/lib/discogs/client.ts` (`searchCatalog`), `src/components/search/search-feed.tsx`, `src/app/(app)/search/page.tsx` |
 | Album back-navigation (context-aware) | `src/components/album/back-link.tsx` |
+| Price history / real fair value | `src/lib/db/queries.ts` (price-history functions), `src/lib/recommendations/fair-value.ts` (`applyHistoricalFairValue`) |
+| Price-drop alerts | `src/lib/commerce/price-alerts.ts` (pure logic), `src/lib/email/price-drop-alert.ts` (template), `src/lib/email/send.ts` (Resend wrapper), `src/app/api/cron/snapshot-prices/route.ts` |
 
 ## API routes
 
@@ -233,10 +254,11 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | `GET/POST /api/spotify/top` | Sync listening snapshot (POST = force) |
 | `GET/POST /api/recommendations` | Load/regenerate picks (`maxDuration: 60`) |
 | `POST /api/feedback` | Recommendation signals; clears cache |
-| `GET/POST/DELETE /api/wishlist` | Auth required |
+| `GET/POST/DELETE /api/wishlist` | Auth required; `POST` now also captures `priceAtAdd` |
 | `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` for that release |
 | `GET /api/discogs/search` | Full-catalog vinyl search, guest-accessible, no auth (`maxDuration: 30`) |
 | `GET /api/discogs/release`, `/marketplace` | Release, marketplace proxies |
+| `GET /api/cron/snapshot-prices` | Vercel Cron only — `Authorization: Bearer $CRON_SECRET` (`maxDuration: 120`) |
 
 ## Environment
 
@@ -246,7 +268,7 @@ Copy `.env.example` → `.env.local`. Required for full functionality:
 - `DISCOGS_TOKEN`
 - `DATABASE_URL` (defaults to local SQLite file)
 
-Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB).
+Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending).
 
 A missing `DISCOGS_TOKEN` fails fast with an actionable error (pointing at discogs.com/settings/developers) instead of a cryptic upstream `401 Invalid consumer token` — a personal access token is enough; no app registration needed. Note `.env.local` is per-directory, so each git worktree needs its own copy.
 
@@ -276,17 +298,18 @@ npm run db:push
 | **Vinyl format preference** | Original pressings vs reissues quiz step |
 | **ML / embeddings** | Still rule-based heuristic scoring; no learned weights |
 | **A/B metrics** | No instrumentation for like-rate or reason-quality success metrics yet |
-| **True price-history / market fair value** | Current fair-value badge is batch-relative only (see above); a real "underpriced vs. historical market" signal needs a new `price_history` table + periodic snapshotting — **no cron/scheduled-job infrastructure exists in this repo** (no `vercel.json`, no GitHub Actions, no scheduled route handlers), so this needs an infra decision first |
 | **Hard-capped reservations** | Reservation scarcity currently only shows a count ("N collectors reserved a spot"); there's no cap and a reservation never blocks. If real scarcity is wanted, decide between a flat per-release constant or `min(numForSale, X)` before implementing |
 | **Cross-browser-engine testing** | UI/mobile verification in this repo has been done via the Chromium-based preview tooling only (viewport resizing for mobile/tablet); Firefox/Safari rendering has not been separately verified |
+| **Verified email sending domain** | Price-drop alerts work end-to-end locally, but Resend (like any transactional email provider) requires a verified sending domain before it can email real users — currently only the developer's own Resend-verified address can receive mail |
+| **Live Vercel deployment** | The cron schedule in `vercel.json` only actually fires once deployed with `CRON_SECRET` set in the project's env vars — this is still a local-dev-only project |
 
 ## Recommended next steps
 
-North star sharpened to: best vinyl-searching site + best deals on vinyl. Roughly in priority order:
+North star: best vinyl-searching site + best deals on vinyl. Roughly in priority order:
 
 1. ~~**Full-catalog search**~~ — done, see "Catalog search" above.
-2. **True price-history fair value** (up next, per product priority). This is the flagship "structurally can't be copied by a plain marketplace" feature, directly serves "best deals," and the current batch-relative fair-value badge (Discover and now Search) is a placeholder. Needs an infra decision first — **Vercel Cron chosen** for the daily snapshot job — plus a `price_history` table sampling marketplace price/want/have per release. Once this exists, price-drop alerts on wishlist items ("this dropped from $40 to $22") fall out almost for free and are probably the single most convincing "we'll get you a deal" feature to ship next.
-3. **Instrument the success metrics that already exist on paper** (see "Success metrics" below), including for the new Search feature (search → click-through → reservation funnel, not just Discover's like-rate). Every scoring/ranking decision is a guess without this data.
+2. ~~**Real price-history fair value + price-drop email alerts**~~ — done, see "Price history & deals" above. Two follow-ups worth doing before this compounds much further: verify a sending domain with Resend (real user emails don't work without it), and deploy to Vercel with `CRON_SECRET` set so the daily snapshot job actually starts running.
+3. **Instrument the success metrics that already exist on paper** (see "Success metrics" below) — including for Search (search → click-through → reservation funnel) and for the new alerts (email → click-through → reservation). Every scoring/ranking/alerting decision is a guess without this data.
 4. **Round out the quiz** with the two deferred steps (artist recognition grid, vinyl format preference) — cheap, additive, and both directly feed scoring signals that already exist in the engine.
 5. **Decide reservation scarcity's teeth.** Right now it's a count with no cap — fine as a nudge, but if the product goal is real urgency, decide between a flat per-release constant or `min(numForSale, X)` and implement the cap.
 6. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
@@ -295,13 +318,14 @@ North star sharpened to: best vinyl-searching site + best deals on vinyl. Roughl
 ## Known constraints
 
 - **Spotify rate limits** — sync batches parallel fetches; 24h snapshot TTL; 1h recommendation cache
-- **Discogs rate limit** — global 1 req/sec throttle (`discogsThrottle`); any new per-item enrichment (e.g. compare-pressings pricing) must be designed around this — see why `getMasterVersions()` deliberately skips per-version price fetches
+- **Discogs rate limit** — global 1 req/sec throttle (`discogsThrottle`); any new per-item enrichment (e.g. compare-pressings pricing) must be designed around this — see why `getMasterVersions()` deliberately skips per-version price fetches, and why the price-snapshot cron caps itself at 100 releases/run
 - **Discogs is slow** — scoring does up to 25 vinyl lookups; generation is client-triggered to avoid serverless timeouts
 - **Guest wishlist** — requires sign-in; quiz and recommendations work for guests
 - **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut fit, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
-- **Fair value is relative, not historical** — see "True price-history / market fair value" above
+- **Real fair value only covers wishlisted releases** — see "Price history & deals" above; everything else still gets the batch-relative badge
 - **Local SQLite under concurrency** — the local file (both `record_finder.db` and the vitest throwaway db) now sets `PRAGMA busy_timeout` on connect so concurrent writers wait instead of throwing `SQLITE_BUSY` (see "Polish & hardening pass" above); WAL mode was deliberately not also enabled, since the mode switch itself needs a brief exclusive lock and caused the exact startup race it would be meant to fix
 - **`/search` is public with no abuse protection** — the route is guest-accessible by design, but nothing beyond the shared `discogsThrottle` limits one client from monopolizing the app's whole Discogs request budget (quiz-gating incidentally did this for Discover before). See "Catalog search" above.
+- **Price-drop emails need a verified sending domain** — see "Price history & deals" above and the new Deferred entry.
 
 ## Success metrics (from roadmap — not instrumented yet)
 

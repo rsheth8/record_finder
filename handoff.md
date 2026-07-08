@@ -1,12 +1,12 @@
 # Record Finder — Handoff
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
 ## What this is
 
-**Record Finder** is a Next.js vinyl discovery app. Users take a taste quiz (no account required), optionally connect Spotify, and get Discogs-backed album recommendations scored to their listening history and preferences. Album pages show pressing details, marketplace pricing, wishlist, feedback, and a credits-based reservation flow for concierge queue spots.
+**Record Finder** is a Next.js vinyl discovery app. Users take a taste quiz (no account required), optionally connect Spotify, and get Discogs-backed album recommendations scored to their listening history and preferences. Album pages show pressing details (including matrix/runout and mastering credits), a cross-pressing comparison, marketplace pricing, a fair-value signal, wishlist, feedback, and a credits-based reservation flow for concierge queue spots with a lightweight scarcity indicator.
 
-**North star for recommendations:** picks that feel like a friend who knows your taste — not generic genre browsing.
+**North star for recommendations:** picks that feel like a friend who knows your taste — not generic genre browsing. **North star for differentiation:** build things on the Spotify-listening ↔ Discogs-vinyl bridge that a plain marketplace (Discogs) or a blind curated subscription (VMP-style) structurally can't offer — see "Vinyl-native differentiation features" below.
 
 ## Stack
 
@@ -71,19 +71,23 @@ interface TasteVector {
 
 Stored in `spotify_snapshot.taste_vector` (JSON).
 
-### Algorithm (Phase 2)
+### Algorithm (Phase 2, hardened in the recommendation-engine overhaul)
 
 **Pipeline** (`src/lib/recommendations/load.ts`):
 
 1. Gate on completed quiz
 2. Return cache if fresh (1h TTL) unless refresh requested
 3. If Spotify connected + stale snapshot → full sync
-4. Seed candidates from saved-album artists, trending artists, core artists, Last.fm similar artists, taste-vector genres
-5. Score via `scoreCandidates()` in `engine.ts`
-6. Exclude own/hide feedback; skip wishlisted releases from discover
-7. Enrich with Discogs marketplace data; cache
+4. **Spotify path:** seed candidates from saved-album artists, trending artists, core artists, Last.fm similar artists, taste-vector genres → score via `scoreCandidates()`.
+   **Quiz-only fallback path:** fan out across the user's top genres × decades (not just `genre[0] + decade[0]`), weighted-sampling a wide per-combo pool by want-count (`weightedSample`, `src/lib/utils/weighted-sample.ts`) so "Refresh picks" actually varies instead of returning Discogs' deterministic top-N every time → score via `getQuizOnlyRecommendations()`
+5. Exclude own/hide feedback
+6. **Dedupe** cross-pressing duplicates (`dedupeRecommendations`, matches on normalized artist+title) and **diversify** across genres (`diversifyByGenre`, round-robins genre buckets) — `src/lib/recommendations/dedupe.ts`
+7. **Enrich** with Discogs rating/price/want/have via one combined `/releases/{id}` call per pick (`enrichRecommendations` → `getReleaseEnrichment`) — previously ratings were left `null`, silently breaking the highest-rated sort, the min-rating filter, and the ⭐ badge
+8. **Finalize**: re-score into a normalized 0–100 blend of relevance/rating/desirability (`finalizeScores`, `src/lib/recommendations/finalize.ts`) — replaces the old unbounded raw sum
+9. Flag batch-relative **fair-value** picks (`computeFairValue`, `src/lib/recommendations/fair-value.ts`)
+10. Cache
 
-**Scoring highlights** (`src/lib/recommendations/engine.ts`):
+**Scoring highlights** (`src/lib/recommendations/engine.ts`) — these are the *raw* per-candidate inputs to `scoreCandidates()`/`getQuizOnlyRecommendations()`, before the finalize blend in step 8 normalizes them:
 
 | Signal | Effect |
 |--------|--------|
@@ -97,10 +101,21 @@ Stored in `spotify_snapshot.taste_vector` (JSON).
 | Quiz album battle winner | +18 |
 | Quiz sub-genre overlap | +8 per match |
 | Feedback like/dislike | +15 / −25 per artist |
+| Mood/format/deep-cut fit | `quizAffinityAdjustment()` — shared by **both** paths |
+| Feedback like/dislike/wishlist | `feedbackAffinityAdjustment()` — shared by **both** paths |
+
+The last two used to be Spotify-path-only; quiz-only recommendations only used them for reason text, never for ranking. Both are now extracted into shared, independently-tested functions in `engine.ts` so quiz-only users' quiz answers and feedback clicks actually move the needle.
+
+**Finalize / score normalization** (`src/lib/recommendations/finalize.ts`) — `finalizeScores(recs, deepCutLevel, weights)` blends three batch-relative components into a 0–100 score:
+- **Relevance** (default weight 0.6): the raw per-candidate score above, min-max normalized within the batch
+- **Rating** (0.3): Bayesian-shrunk community rating (`ratingScore` — prior 3.8, confidence 50 votes, so a 4.9 from 5 voters doesn't outrank a 4.6 from thousands)
+- **Desirability** (0.1): log-scaled want-count, **direction flips on `deepCutLevel`** — mainstream-leaning users get a popularity-favoring signal, deep-cut lovers get an obscurity-favoring one, neutral at 50. (Before this, desirability always rewarded popularity, actively fighting a deep-cut lover's own stated preference.)
+
+**Fair value** (`src/lib/recommendations/fair-value.ts`) — `computeFairValue()` flags picks in the top quartile of want/have ratio *and* bottom quartile of price, both computed relative to the current batch. Deliberately not a true historical "underpriced vs. the real market" claim — Discogs doesn't expose sold-price history, so there's no data for that without a new price-history table + a periodic snapshot job (no cron infra exists in this repo yet — see Deferred).
 
 **Explainability** — `buildReasons()` cites saved albums, recent rotation, core-artist deep cuts, library similarity, quiz genre/mood matches.
 
-**Fallback** — no Spotify or API failure → `getQuizOnlyRecommendations()` (Discogs browse by genre/decade).
+**Fallback** — no Spotify or API failure → `getQuizOnlyRecommendations()` (Discogs browse by genre/decade, now genre/decade-diverse and feedback-aware — see pipeline step 4 above).
 
 ### Intensive quiz (Phase 3)
 
@@ -126,7 +141,19 @@ Quiz responses stored separately in `quiz_responses` (album preferences + sub-ge
 
 **Layout** — `app-shell.tsx` wraps pages with the atmosphere, desktop `app-nav.tsx`, and a mobile bottom-tab `mobile-nav.tsx` (auto-hides on `/album/*`, which uses a sticky action bar instead). Page/stagger transitions: `src/components/motion/`.
 
-**Discover / album UI** — poster cards (`discover/poster-card.tsx`) with dark-glass price + rating badges and a vinyl "no cover art" placeholder; carousels via Embla (`discover/carousel-row.tsx`); grid (`discover/discover-grid.tsx`). The album page's presentation is extracted into `components/album/album-detail.tsx` (the route just fetches data); buy/reserve/wishlist actions in `album/album-actions.tsx` (a single button row with concierge helper text below).
+**Discover / album UI** — poster cards (`discover/poster-card.tsx`) with dark-glass price + rating + fair-value badges (stacked top-left) and a vinyl "no cover art" placeholder; carousels via Embla (`discover/carousel-row.tsx`); grid (`discover/discover-grid.tsx`). Filters (`discover/discover-filters.tsx`) cover search, genre, decade, sort (incl. price-low), min rating, deep-cut-only, for-sale-only, max price, format, and good-value-only. The discover feed (`discover/discover-feed.tsx`) shows an "auto-refreshes in Xm" hint next to the refresh button, driven by a `useNowMinute()` hook (`src/hooks/use-now-minute.ts`, `useSyncExternalStore`-based to avoid a hydration mismatch on "current time").
+
+The album page's presentation is extracted into `components/album/album-detail.tsx` (the route just fetches data); buy/reserve/wishlist actions in `album/album-actions.tsx` (a single button row with concierge helper text below). "More like this" (`album/similar-releases.tsx`), pressing comparison (`album/compare-pressings.tsx`), and — on the home page — listening-intent nudges (`home/listening-intent-row.tsx`) are each async Server Components streamed in behind a `<Suspense>` boundary, since they do slower per-item Discogs enrichment/validation that shouldn't block the rest of the page.
+
+## Vinyl-native differentiation features
+
+Four features built entirely on data/infra already in place (no new schema, no new cron):
+
+- **Pressing details** (`album/pressing-details.tsx`) — matrix/runout codes, mastering credits (e.g. "Mastered By"), pressing-plant/label credits, and freeform pressing notes. All of this was already in the `/releases/{id}` response `getRelease()` fetches; it just wasn't parsed. `DiscogsRelease` (`src/lib/types.ts`) now carries `identifiers`, `companies`, `extraArtists`, `notes`, `masterId`.
+- **Compare pressings** (`album/compare-pressings.tsx`) — every pressing/reissue/regional variant of an album via `getMasterVersions()` (`src/lib/discogs/client.ts`), one Discogs call regardless of how many versions exist, sorted by want-count. Deliberately does **not** fetch marketplace price per version (would be N extra rate-limited calls for an album with dozens of pressings).
+- **Fair-value badge** — see "Finalize / score normalization" above. Surfaced as a poster-card badge, an album-page callout, and a "Good value only" discover filter.
+- **Reservation scarcity** — `getReservationCountForRelease()` (`src/lib/db/queries.ts`) counts existing `orders` rows for a release; shown as a "N collectors already reserved a spot" badge in the reserve-confirmation modal (`album/reserve-with-credits-button.tsx`). No cap — it never blocks a reservation, and the copy is deliberately careful not to imply a real inventory lock (there's no purchase-completion tracking; the buyer still completes the purchase on Discogs themselves).
+- **Listening-intent nudges** (`src/lib/recommendations/listening-intent.ts`, `home/listening-intent-row.tsx`) — surfaces albums the user has replayed 3+ times in the last 7 days, or that clear a taste-vector `albumWeights` threshold (≥0.7, reusing the existing `artistWeights` cutoff), that aren't already wishlisted or in the current recommendation batch. Each candidate is validated against a real Discogs vinyl pressing via `searchVinylRelease()` before surfacing. Home-page only, gated on Spotify connection, computed independently of the hourly recommendation cache (this signal is inherently time-sensitive).
 
 ## Database schema
 
@@ -150,7 +177,12 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 |------|------|
 | Recommendation orchestration | `src/lib/recommendations/load.ts` |
 | Scoring + reasons | `src/lib/recommendations/engine.ts` |
+| Score normalization / fair value | `src/lib/recommendations/finalize.ts`, `fair-value.ts` |
+| Dedup + genre diversity | `src/lib/recommendations/dedupe.ts` |
+| Listening-intent nudges | `src/lib/recommendations/listening-intent.ts` |
 | Discogs matching | `src/lib/recommendations/match.ts` |
+| Discogs client (search, release, marketplace, master versions) | `src/lib/discogs/client.ts` |
+| Weighted sampling (browse variety) | `src/lib/utils/weighted-sample.ts` |
 | Discover UI grouping/filtering | `src/lib/recommendations/group.ts`, `filter.ts` |
 | Spotify fetch + discovery seeds | `src/lib/spotify/client.ts` |
 | Spotify sync | `src/lib/spotify/sync.ts` |
@@ -161,6 +193,9 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Theming + ambient scene | `src/lib/themes.ts`, `src/components/theme-provider.tsx`, `src/components/noir/noir-atmosphere.tsx`, `src/components/home/noir-hero.tsx` |
 | App shell + nav | `src/components/app-shell.tsx`, `src/components/app-nav.tsx`, `src/components/mobile-nav.tsx` |
 | Album detail (presentation) | `src/components/album/album-detail.tsx`, `src/components/album/album-actions.tsx` |
+| Pressing details / compare pressings | `src/components/album/pressing-details.tsx`, `compare-pressings.tsx` |
+| "More like this" (Suspense-streamed) | `src/components/album/similar-releases.tsx` |
+| Home listening-intent row (Suspense-streamed) | `src/components/home/listening-intent-row.tsx` |
 | Discover cards / carousels | `src/components/discover/poster-card.tsx`, `carousel-row.tsx`, `discover-grid.tsx` |
 
 ## API routes
@@ -172,7 +207,7 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | `GET/POST /api/recommendations` | Load/regenerate picks (`maxDuration: 60`) |
 | `POST /api/feedback` | Recommendation signals; clears cache |
 | `GET/POST/DELETE /api/wishlist` | Auth required |
-| `POST /api/reservations` | Spend credits on listing hold |
+| `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` for that release |
 | `GET /api/discogs/*` | Release, search, marketplace proxies |
 
 ## Environment
@@ -213,13 +248,18 @@ npm run db:push
 | **Vinyl format preference** | Original pressings vs reissues quiz step |
 | **ML / embeddings** | Still rule-based heuristic scoring; no learned weights |
 | **A/B metrics** | No instrumentation for like-rate or reason-quality success metrics yet |
+| **True price-history / market fair value** | Current fair-value badge is batch-relative only (see above); a real "underpriced vs. historical market" signal needs a new `price_history` table + periodic snapshotting — **no cron/scheduled-job infrastructure exists in this repo** (no `vercel.json`, no GitHub Actions, no scheduled route handlers), so this needs an infra decision first |
+| **Hard-capped reservations** | Reservation scarcity currently only shows a count ("N collectors reserved a spot"); there's no cap and a reservation never blocks. If real scarcity is wanted, decide between a flat per-release constant or `min(numForSale, X)` before implementing |
+| **Cross-browser-engine testing** | UI/mobile verification in this repo has been done via the Chromium-based preview tooling only (viewport resizing for mobile/tablet); Firefox/Safari rendering has not been separately verified |
 
 ## Known constraints
 
 - **Spotify rate limits** — sync batches parallel fetches; 24h snapshot TTL; 1h recommendation cache
+- **Discogs rate limit** — global 1 req/sec throttle (`discogsThrottle`); any new per-item enrichment (e.g. compare-pressings pricing) must be designed around this — see why `getMasterVersions()` deliberately skips per-version price fetches
 - **Discogs is slow** — scoring does up to 25 vinyl lookups; generation is client-triggered to avoid serverless timeouts
 - **Guest wishlist** — requires sign-in; quiz and recommendations work for guests
-- **Quiz-only path** — weaker than Spotify-connected scoring (positional `50 - index` on Discogs browse)
+- **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut fit, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
+- **Fair value is relative, not historical** — see "True price-history / market fair value" above
 
 ## Success metrics (from roadmap — not instrumented yet)
 

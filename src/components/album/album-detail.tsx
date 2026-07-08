@@ -1,18 +1,18 @@
 import { Suspense } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { FeedbackButtons } from "@/components/album/feedback-buttons";
 import { SimilarReleases } from "@/components/album/similar-releases";
 import { PressingDetails } from "@/components/album/pressing-details";
 import { ComparePressings } from "@/components/album/compare-pressings";
 import { AlbumActions } from "@/components/album/album-actions";
+import { BackLink } from "@/components/album/back-link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 import { usdToCredits, formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
 import type { DiscogsRelease, FeedbackSignal } from "@/lib/types";
-import { ArrowLeft, Disc3, Sparkles, Star } from "lucide-react";
+import { Disc3, Sparkles, Star } from "lucide-react";
 
 export function AlbumDetail({
   release,
@@ -64,13 +64,7 @@ export function AlbumDetail({
           </div>
         )}
         <div className="relative px-4 py-8 md:px-8">
-          <Link
-            href="/discover"
-            className="mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Discover
-          </Link>
+          <BackLink />
 
           <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
             <div className="relative mx-auto h-56 w-56 shrink-0 overflow-hidden rounded-xl bg-surface-elevated shadow-2xl sm:mx-0 sm:h-64 sm:w-64">

@@ -4,9 +4,9 @@ Last updated: 2026-07-08
 
 ## What this is
 
-**Record Finder** is a Next.js vinyl discovery app. Users take a taste quiz (no account required), optionally connect Spotify, and get Discogs-backed album recommendations scored to their listening history and preferences. Album pages show pressing details (including matrix/runout and mastering credits), a cross-pressing comparison, marketplace pricing, a fair-value signal, wishlist, feedback, and a credits-based reservation flow for concierge queue spots with a lightweight scarcity indicator.
+**Record Finder** is a Next.js vinyl discovery app. Anyone can search the full Discogs vinyl catalog with no account (`/search`), or take a taste quiz (no account required) to get Discogs-backed album recommendations scored to their listening history and preferences, optionally sharpened by connecting Spotify. Album pages show pressing details (including matrix/runout and mastering credits), a cross-pressing comparison, marketplace pricing, a fair-value signal, wishlist, feedback, and a credits-based reservation flow for concierge queue spots with a lightweight scarcity indicator.
 
-**North star for recommendations:** picks that feel like a friend who knows your taste — not generic genre browsing. **North star for differentiation:** build things on the Spotify-listening ↔ Discogs-vinyl bridge that a plain marketplace (Discogs) or a blind curated subscription (VMP-style) structurally can't offer — see "Vinyl-native differentiation features" below.
+**North star:** be the best vinyl-searching site and get people the best deals on vinyl. **North star for recommendations:** picks that feel like a friend who knows your taste — not generic genre browsing. **North star for differentiation:** build things on the Spotify-listening ↔ Discogs-vinyl bridge that a plain marketplace (Discogs) or a blind curated subscription (VMP-style) structurally can't offer — see "Vinyl-native differentiation features" below.
 
 ## Stack
 
@@ -25,13 +25,16 @@ Last updated: 2026-07-08
 Home → Taste Quiz (7 steps) → Discover → Album detail
          ↓ optional
     Spotify connect → full listening sync → sharper picks
+
+Search (guest, no quiz) → Album detail
 ```
 
-1. **Quiz** (`/quiz`) — genres, sub-genres, decades, moods, album A-vs-B battles, listening style, deep-cut slider. Guests get a signed cookie ID; data persists without sign-in.
-2. **Spotify connect** — OAuth scopes: `user-top-read`, `user-read-recently-played`, `user-library-read`. Sync runs on home page connect and before recommendation generation when snapshot is stale (24h).
-3. **Discover** (`/discover`) — requires completed quiz. Reads recommendation cache on SSR; client triggers `POST /api/recommendations` if empty (~25s Discogs pass).
-4. **Album** (`/album/[id]`) — Discogs release detail, feedback (like/dislike/own/hide), wishlist (signed-in), reserve with credits, Spotify link.
-5. **Wishlist** (`/wishlist`) — requires Spotify sign-in.
+1. **Search** (`/search`) — full-catalog Discogs vinyl search, no quiz or sign-in required. See "Catalog search" below.
+2. **Quiz** (`/quiz`) — genres, sub-genres, decades, moods, album A-vs-B battles, listening style, deep-cut slider. Guests get a signed cookie ID; data persists without sign-in.
+3. **Spotify connect** — OAuth scopes: `user-top-read`, `user-read-recently-played`, `user-library-read`. Sync runs on home page connect and before recommendation generation when snapshot is stale (24h).
+4. **Discover** (`/discover`) — requires completed quiz. Reads recommendation cache on SSR; client triggers `POST /api/recommendations` if empty (~25s Discogs pass). A local-filter miss ("no matches in your picks") links out to `/search?q=...` for the full catalog.
+5. **Album** (`/album/[id]`) — Discogs release detail, feedback (like/dislike/own/hide), wishlist (signed-in), reserve with credits, Spotify link. Reachable from Discover, Search, or Wishlist; the back link (`album/back-link.tsx`) goes to whichever one you came from via browser history, falling back to Discover on a direct link.
+6. **Wishlist** (`/wishlist`) — requires Spotify sign-in.
 
 On Spotify sign-in, `mergeGuestData()` moves guest quiz, wishlist, feedback, quiz responses, and Spotify snapshot (if account has none) to the real user ID.
 
@@ -155,6 +158,16 @@ Four features built entirely on data/infra already in place (no new schema, no n
 - **Reservation scarcity** — `getReservationCountForRelease()` (`src/lib/db/queries.ts`) counts existing `orders` rows for a release; shown as a "N collectors already reserved a spot" badge in the reserve-confirmation modal (`album/reserve-with-credits-button.tsx`). No cap — it never blocks a reservation, and the copy is deliberately careful not to imply a real inventory lock (there's no purchase-completion tracking; the buyer still completes the purchase on Discogs themselves).
 - **Listening-intent nudges** (`src/lib/recommendations/listening-intent.ts`, `home/listening-intent-row.tsx`) — surfaces albums the user has replayed 3+ times in the last 7 days, or that clear a taste-vector `albumWeights` threshold (≥0.7, reusing the existing `artistWeights` cutoff), that aren't already wishlisted or in the current recommendation batch. Each candidate is validated against a real Discogs vinyl pressing via `searchVinylRelease()` before surfacing. Home-page only, gated on Spotify connection, computed independently of the hourly recommendation cache (this signal is inherently time-sensitive).
 
+## Catalog search (2026-07-08)
+
+Full-catalog Discogs vinyl search, guest-accessible (no quiz, no sign-in) — first-class entry point per the "best vinyl searching site" north star, distinct from Discover's filter box (which only searches within a signed-in user's ~20-25 personalized recommendations). There was previously a dead, unused API route at this path that this replaced; nothing in the UI called it before.
+
+- **`searchCatalog(query, page)`** (`src/lib/discogs/client.ts`) — hits `/database/search` with relevance-default sort (not `sort=want`, so a literal title/artist search surfaces the actual match first), page size fixed small (10) since every result costs one more Discogs call to enrich under the shared 1-req/sec throttle. Returns results in the existing `Recommendation` shape (via a private `searchResultToSearchHit`, parallel to but distinct from `searchResultToRecommendation` — a search hit has no personalized "reason") plus a `SearchPagination` envelope (`src/lib/types.ts`).
+- **`GET /api/discogs/search`** — rewritten (previously raw Discogs JSON passthrough); validates and clamps the query, enriches the page with `enrichRecommendations()` (price/rating), and flags `computeFairValue()` on that page-batch — same page-relative "good value" framing Discover already uses, not real historical fair value (see "True price-history" below). `maxDuration = 30`, matching `/api/recommendations`'s precedent for a rate-limited Discogs pass.
+- **`/search` page + `SearchFeed`** (`src/components/search/search-feed.tsx`) — input, `VinylLoader` (~10-12s for a full page with price/rating — a conscious latency-for-richness tradeoff, not an oversight), `DiscoverGrid` reused as-is for results, prev/next pagination. No filters, no genre grouping, no view-mode toggle — deliberately thinner than Discover.
+- **Nav** — added to both `app-nav.tsx` (desktop) and `mobile-nav.tsx` (now 5 tabs) as a permanent, always-visible entry point, and to Discover's empty-filter-result state as a "Search all vinyl for '...'" bridge link.
+- **Known gap, accepted for v1:** no rate limiting or abuse protection exists for this now-public route beyond the shared Discogs throttle (which protects the app's Discogs quota, not against one client monopolizing it). Quiz-gating was incidentally serving as informal abuse protection before this. If abuse becomes a real problem, add a per-IP/session soft limit (no Redis/KV in this repo today — would need an in-memory or DB-backed sliding window).
+
 ## Polish & hardening pass (2026-07-08)
 
 Full manual walkthrough of every user flow (quiz retake, discover rows/grid/filters/search, album detail, feedback, guest gating on wishlist/reservation, theming, mobile) plus targeted new test coverage. Found and fixed three real bugs, none of which were caught by the existing test suite because the affected code paths had no tests:
@@ -209,6 +222,8 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | "More like this" (Suspense-streamed) | `src/components/album/similar-releases.tsx` |
 | Home listening-intent row (Suspense-streamed) | `src/components/home/listening-intent-row.tsx` |
 | Discover cards / carousels | `src/components/discover/poster-card.tsx`, `carousel-row.tsx`, `discover-grid.tsx` |
+| Catalog search | `src/lib/discogs/client.ts` (`searchCatalog`), `src/components/search/search-feed.tsx`, `src/app/(app)/search/page.tsx` |
+| Album back-navigation (context-aware) | `src/components/album/back-link.tsx` |
 
 ## API routes
 
@@ -220,7 +235,8 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | `POST /api/feedback` | Recommendation signals; clears cache |
 | `GET/POST/DELETE /api/wishlist` | Auth required |
 | `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` for that release |
-| `GET /api/discogs/*` | Release, search, marketplace proxies |
+| `GET /api/discogs/search` | Full-catalog vinyl search, guest-accessible, no auth (`maxDuration: 30`) |
+| `GET /api/discogs/release`, `/marketplace` | Release, marketplace proxies |
 
 ## Environment
 
@@ -266,14 +282,15 @@ npm run db:push
 
 ## Recommended next steps
 
-Roughly in priority order, reasoning about leverage vs. effort:
+North star sharpened to: best vinyl-searching site + best deals on vinyl. Roughly in priority order:
 
-1. **Instrument the success metrics that already exist on paper** (see "Success metrics" below). Every other decision about the recommendation engine — whether the finalize-score weights are right, whether quiz-only users need more signal, whether fair-value actually gets clicked — is a guess without like-rate and reason-citation data. This is mostly plumbing (log an event on feedback/reservation/wishlist actions to a new lightweight table) and unblocks everything downstream. Do this before investing further in scoring tweaks.
-2. **True price-history fair value.** This is the flagship "structurally can't be copied by a plain marketplace" feature per the north star, and the current batch-relative version is a placeholder. Needs an infra decision first (Vercel cron vs. GitHub Actions scheduled workflow vs. a manually-triggered route) plus a `price_history` table and a daily snapshot job sampling marketplace price/want/have per release. Worth scoping the infra decision even before the data model.
-3. **Round out the quiz** with the two deferred steps (artist recognition grid, vinyl format preference) — cheap, additive, and both directly feed scoring signals that already exist in the engine (format preference already exists as a *result* filter in discover; it's not yet a quiz *input*).
-4. **Decide reservation scarcity's teeth.** Right now it's a count with no cap — fine as a nudge, but if the product goal is real urgency, decide between a flat per-release constant or `min(numForSale, X)` and implement the cap. Low effort, but a product decision, not just an engineering one.
-5. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
-6. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (1) show the heuristic approach actually plateauing.
+1. ~~**Full-catalog search**~~ — done, see "Catalog search" above.
+2. **True price-history fair value** (up next, per product priority). This is the flagship "structurally can't be copied by a plain marketplace" feature, directly serves "best deals," and the current batch-relative fair-value badge (Discover and now Search) is a placeholder. Needs an infra decision first — **Vercel Cron chosen** for the daily snapshot job — plus a `price_history` table sampling marketplace price/want/have per release. Once this exists, price-drop alerts on wishlist items ("this dropped from $40 to $22") fall out almost for free and are probably the single most convincing "we'll get you a deal" feature to ship next.
+3. **Instrument the success metrics that already exist on paper** (see "Success metrics" below), including for the new Search feature (search → click-through → reservation funnel, not just Discover's like-rate). Every scoring/ranking decision is a guess without this data.
+4. **Round out the quiz** with the two deferred steps (artist recognition grid, vinyl format preference) — cheap, additive, and both directly feed scoring signals that already exist in the engine.
+5. **Decide reservation scarcity's teeth.** Right now it's a count with no cap — fine as a nudge, but if the product goal is real urgency, decide between a flat per-release constant or `min(numForSale, X)` and implement the cap.
+6. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
+7. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (3) show the heuristic approach actually plateauing.
 
 ## Known constraints
 
@@ -284,6 +301,7 @@ Roughly in priority order, reasoning about leverage vs. effort:
 - **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut fit, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
 - **Fair value is relative, not historical** — see "True price-history / market fair value" above
 - **Local SQLite under concurrency** — the local file (both `record_finder.db` and the vitest throwaway db) now sets `PRAGMA busy_timeout` on connect so concurrent writers wait instead of throwing `SQLITE_BUSY` (see "Polish & hardening pass" above); WAL mode was deliberately not also enabled, since the mode switch itself needs a brief exclusive lock and caused the exact startup race it would be meant to fix
+- **`/search` is public with no abuse protection** — the route is guest-accessible by design, but nothing beyond the shared `discogsThrottle` limits one client from monopolizing the app's whole Discogs request budget (quiz-gating incidentally did this for Discover before). See "Catalog search" above.
 
 ## Success metrics (from roadmap — not instrumented yet)
 

@@ -2,6 +2,7 @@ import type {
   DiscogsRelease,
   Recommendation,
   RecommendationMarketplace,
+  SearchPagination,
 } from "@/lib/types";
 import { createRateLimiter } from "@/lib/utils/rate-limited-pool";
 import { weightedSample } from "@/lib/utils/weighted-sample";
@@ -331,6 +332,63 @@ function searchResultToRecommendation(
     spotifyUrl: null,
     score: 0,
     reasons: [reason],
+  };
+}
+
+/** Same shape as searchResultToRecommendation, but for literal catalog search —
+ * a search hit has no "reason" (that framing is for personalized picks), so this
+ * stays a separate function rather than threading an empty/fake reason through. */
+function searchResultToSearchHit(r: DiscogsSearchResult): Recommendation {
+  const parsed = splitDiscogsTitle(r.title);
+  return {
+    discogsReleaseId: r.id,
+    title: parsed.title || r.title,
+    artist: parsed.artist,
+    year: r.year ? parseInt(r.year, 10) : null,
+    coverUrl: r.cover_image ?? null,
+    genres: [...(r.genre ?? []), ...(r.style ?? [])],
+    formats: r.format ?? [],
+    communityRating: null,
+    ratingCount: null,
+    wantCount: r.community?.want ?? null,
+    haveCount: r.community?.have ?? null,
+    spotifyAlbumId: null,
+    spotifyUrl: null,
+    score: 0,
+    reasons: [],
+  };
+}
+
+// Kept small: each result costs one more 1-req/sec Discogs call to enrich with
+// price/rating (see enrichRecommendations), so a search page trades breadth for
+// a tolerable wait rather than a 20+ item page taking 20+ seconds.
+const SEARCH_PER_PAGE = 10;
+const SEARCH_PAGE_MAX = 50;
+
+/** Full-catalog vinyl search for the /search page — unlike searchVinylRelease
+ * (which validates a single best match for scoring a known artist+title pair),
+ * this returns a raw, paginated results list for an arbitrary free-text query. */
+export async function searchCatalog(
+  query: string,
+  page = 1,
+): Promise<{ results: Recommendation[]; pagination: SearchPagination }> {
+  const clampedPage = Math.min(Math.max(1, page), SEARCH_PAGE_MAX);
+  const q = encodeURIComponent(query.trim());
+  const data = await discogsFetch<{
+    results?: DiscogsSearchResult[];
+    pagination?: { page: number; pages: number; items: number; per_page: number };
+  }>(
+    `/database/search?q=${q}&type=release&format=Vinyl&page=${clampedPage}&per_page=${SEARCH_PER_PAGE}`,
+  );
+
+  return {
+    results: (data.results ?? []).map(searchResultToSearchHit),
+    pagination: {
+      page: data.pagination?.page ?? clampedPage,
+      pages: data.pagination?.pages ?? 1,
+      items: data.pagination?.items ?? data.results?.length ?? 0,
+      perPage: data.pagination?.per_page ?? SEARCH_PER_PAGE,
+    },
   };
 }
 

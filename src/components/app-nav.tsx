@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Compass, Disc3, Heart, Home } from "lucide-react";
+import { Compass, Disc3, Heart, Home, Search } from "lucide-react";
 import { CreditsNavLink } from "@/components/credits/credits-nav-link";
 import { ThemePicker } from "@/components/theme-picker";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home, exact: true },
+  { href: "/search", label: "Search", icon: Search, exact: false },
   { href: "/discover", label: "Discover", icon: Compass, exact: false },
   { href: "/wishlist", label: "Wishlist", icon: Heart, exact: false },
 ];

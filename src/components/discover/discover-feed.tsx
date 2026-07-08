@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CarouselRow } from "@/components/discover/carousel-row";
@@ -33,7 +34,7 @@ function formatRefreshHint(expiresAt: Date, now: Date): string {
   return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
 }
 
-function EmptyShelf() {
+function EmptyShelf({ searchQuery }: { searchQuery: string }) {
   return (
     <div className="flex flex-col items-center py-16 text-center">
       <div className="relative mb-6">
@@ -44,6 +45,14 @@ function EmptyShelf() {
       <p className="mt-2 max-w-sm text-sm text-muted">
         No albums match your filters. Try broadening your search or refreshing picks.
       </p>
+      {searchQuery && (
+        <Link
+          href={`/search?q=${encodeURIComponent(searchQuery)}`}
+          className="mt-4 text-sm font-medium text-accent hover:underline"
+        >
+          Search all vinyl for &ldquo;{searchQuery}&rdquo; →
+        </Link>
+      )}
     </div>
   );
 }
@@ -264,7 +273,7 @@ export function DiscoverFeed({
               </CardDescription>
             </>
           ) : (
-            <EmptyShelf />
+            <EmptyShelf searchQuery={filters.search.trim()} />
           )}
         </Card>
       ) : viewMode === "grid" || contentFiltering ? (

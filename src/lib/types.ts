@@ -157,6 +157,13 @@ export interface Recommendation {
   fairValue?: boolean;
 }
 
+export interface SearchPagination {
+  page: number;
+  pages: number;
+  items: number;
+  perPage: number;
+}
+
 export interface DiscogsRelease {
   id: number;
   title: string;

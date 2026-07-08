@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/quiz/album-battles";
 import { cn } from "@/lib/utils";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
   Calendar,
   CheckCircle2,
@@ -87,7 +89,7 @@ function ToggleGrid<T extends string>({
             type="button"
             onClick={() => toggle(option)}
             className={cn(
-              "rounded-full border px-4 py-2.5 text-sm transition-colors",
+              "pressable focus-ring rounded-full border px-4 py-2.5 text-sm",
               active
                 ? "border-accent bg-accent-muted text-accent"
                 : "border-border text-muted hover:border-accent/50 hover:text-foreground",
@@ -123,7 +125,7 @@ function AlbumBattleCard({
               type="button"
               onClick={() => onSelect(side)}
               className={cn(
-                "rounded-xl border p-4 text-left transition-colors",
+                "pressable focus-ring rounded-xl border p-4 text-left",
                 active
                   ? "border-accent bg-accent-muted"
                   : "border-border hover:border-accent/50",
@@ -153,6 +155,7 @@ export function QuizFlow({
   } | null;
 }) {
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const [stepIndex, setStepIndex] = useState(0);
   const [genres, setGenres] = useState<QuizGenre[]>(initial?.genres ?? []);
   const [subGenres, setSubGenres] = useState<QuizSubGenres>(initial?.subGenres ?? {});
@@ -294,7 +297,13 @@ export function QuizFlow({
           </div>
         </div>
 
-        <Card className="animate-in fade-in duration-300 noir-glass">
+        <motion.div
+          key={step}
+          initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        >
+        <Card className="noir-glass">
           {step === "genres" && (
             <>
               <CardTitle>What genres do you reach for?</CardTitle>
@@ -387,7 +396,7 @@ export function QuizFlow({
                     type="button"
                     onClick={() => setAlbumPreference(value)}
                     className={cn(
-                      "w-full rounded-xl border p-4 text-left transition-colors",
+                      "pressable focus-ring w-full rounded-xl border p-4 text-left",
                       albumPreference === value
                         ? "border-accent bg-accent-muted"
                         : "border-border hover:border-accent/50",
@@ -423,6 +432,7 @@ export function QuizFlow({
             </>
           )}
         </Card>
+        </motion.div>
 
         {error && (
           <p className="text-sm text-error">{error}</p>

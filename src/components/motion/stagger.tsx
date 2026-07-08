@@ -8,9 +8,12 @@ import { cn } from "@/lib/utils";
 export function StaggerContainer({
   children,
   className,
+  variants = staggerContainer,
 }: {
   children: React.ReactNode;
   className?: string;
+  /** Stagger timing variants — pass `staggerGrid` for dense grids. */
+  variants?: typeof staggerContainer;
 }) {
   const reducedMotion = useReducedMotion();
 
@@ -21,7 +24,7 @@ export function StaggerContainer({
   return (
     <motion.div
       className={className}
-      variants={staggerContainer}
+      variants={variants}
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, margin: "-40px" }}

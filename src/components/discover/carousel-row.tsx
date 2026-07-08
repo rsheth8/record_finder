@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
+import AutoScroll from "embla-carousel-auto-scroll";
+import type { EmblaOptionsType, EmblaPluginType } from "embla-carousel";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Recommendation } from "@/lib/types";
 import { PosterCard } from "@/components/discover/poster-card";
+import { BLEED_PL, BLEED_PR } from "@/lib/layout";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
-const CONTENT_INSET = "pl-4 sm:pl-[max(1rem,calc((100vw-72rem)/2+1rem))]";
-const HEADER_INSET = cn(CONTENT_INSET, "pr-4 sm:pr-[max(1rem,calc((100vw-72rem)/2+1rem))]");
+const CONTENT_INSET = BLEED_PL;
+const HEADER_INSET = cn(BLEED_PL, BLEED_PR);
 
 const ROW_ACCENT_COLORS = [
   "var(--color-accent)",
@@ -27,25 +31,57 @@ export function CarouselRow({
   bleed = true,
   featured = false,
   rowIndex = 0,
+  autoScroll = false,
 }: {
   title: string;
   items: Recommendation[];
   bleed?: boolean;
   featured?: boolean;
   rowIndex?: number;
+  /** Continuously drift this row (a passive showcase treatment). Pauses on
+   * hover / focus / touch and loops seamlessly; fully disabled under
+   * `prefers-reduced-motion`. Reserved for a single showcase row (home "Top
+   * picks") — deliberately NOT used on the Discover browse rows, which would
+   * be motion soup with many drifting at once. */
+  autoScroll?: boolean;
 }) {
+  const reducedMotion = useReducedMotion();
+  const enableAutoScroll = autoScroll && !reducedMotion;
+
   const [isHovered, setIsHovered] = useState(false);
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const [emblaRef, emblaApi] = useEmblaCarousel({
-    loop: false,
-    align: "start",
-    dragFree: false,
-    containScroll: "trimSnaps",
-    slidesToScroll: "auto",
-  });
+  // Looping is required for a seamless continuous drift; without auto-scroll
+  // we keep the snap-to-edges behavior (trimSnaps) the browse rows rely on.
+  const emblaOptions = useMemo<EmblaOptionsType>(
+    () => ({
+      loop: enableAutoScroll,
+      align: "start",
+      dragFree: false,
+      containScroll: enableAutoScroll ? false : "trimSnaps",
+      slidesToScroll: "auto",
+    }),
+    [enableAutoScroll],
+  );
+
+  const emblaPlugins = useMemo<EmblaPluginType[]>(
+    () =>
+      enableAutoScroll
+        ? [
+            AutoScroll({
+              speed: 1,
+              stopOnInteraction: false,
+              stopOnMouseEnter: true,
+              stopOnFocusIn: true,
+            }),
+          ]
+        : [],
+    [enableAutoScroll],
+  );
+
+  const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions, emblaPlugins);
 
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
@@ -78,21 +114,44 @@ export function CarouselRow({
 
   useEffect(() => {
     if (!emblaApi) return;
+    const root = emblaApi.rootNode();
 
-    const onPointerDown = () => setIsDragging(false);
-    const onScroll = () => setIsDragging(true);
-    const onPointerUp = () => {
-      window.setTimeout(() => setIsDragging(false), 50);
+    // Suppress the poster's click navigation only after a real pointer *drag*,
+    // measured by pixel travel on the DOM — NOT by Embla's "scroll" event,
+    // which fires continuously during auto-scroll and would flag every plain
+    // tap on a drifting row as a drag (swallowing the click). Pointer events
+    // cover mouse and touch alike.
+    const DRAG_THRESHOLD = 8;
+    let startX = 0;
+    let tracking = false;
+
+    const onPointerDown = (e: PointerEvent) => {
+      startX = e.clientX;
+      tracking = true;
+      setIsDragging(false);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (tracking && Math.abs(e.clientX - startX) > DRAG_THRESHOLD) {
+        setIsDragging(true);
+      }
+    };
+    const onPointerEnd = () => {
+      tracking = false;
+      // Reset after the click that follows pointerup has been dispatched, so
+      // the poster's onClick still sees "dragging" for a genuine drag-release.
+      window.setTimeout(() => setIsDragging(false), 0);
     };
 
-    emblaApi.on("pointerDown", onPointerDown);
-    emblaApi.on("scroll", onScroll);
-    emblaApi.on("pointerUp", onPointerUp);
+    root.addEventListener("pointerdown", onPointerDown);
+    root.addEventListener("pointermove", onPointerMove);
+    root.addEventListener("pointerup", onPointerEnd);
+    root.addEventListener("pointercancel", onPointerEnd);
 
     return () => {
-      emblaApi.off("pointerDown", onPointerDown);
-      emblaApi.off("scroll", onScroll);
-      emblaApi.off("pointerUp", onPointerUp);
+      root.removeEventListener("pointerdown", onPointerDown);
+      root.removeEventListener("pointermove", onPointerMove);
+      root.removeEventListener("pointerup", onPointerEnd);
+      root.removeEventListener("pointercancel", onPointerEnd);
     };
   }, [emblaApi]);
 
@@ -125,16 +184,16 @@ export function CarouselRow({
         </div>
       ) : null}
 
-      <div className={cn("relative", showArrows && "px-11 sm:px-12")}>
+      <div className={cn("relative", showArrows && "sm:px-12")}>
         {showArrows && canScrollPrev && (
           <button
             type="button"
             onClick={scrollPrev}
             aria-label={`Scroll ${title || "albums"} left`}
             className={cn(
-              "absolute left-0 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
+              "absolute left-0 top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:flex",
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
-              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
+              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
             )}
@@ -149,9 +208,9 @@ export function CarouselRow({
             onClick={scrollNext}
             aria-label={`Scroll ${title || "albums"} right`}
             className={cn(
-              "absolute right-0 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full sm:h-11 sm:w-11",
+              "absolute right-0 top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:flex",
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
-              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated",
+              "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
               isHovered ? "opacity-100" : "opacity-80",
             )}

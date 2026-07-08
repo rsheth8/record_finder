@@ -48,7 +48,7 @@ export function MarketplaceBadge({ discogsReleaseId }: { discogsReleaseId: numbe
       href={stats.discogsUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+      className="focus-ring inline-flex items-center gap-1 rounded-sm text-xs text-accent hover:underline"
     >
       {stats.lowestPrice ? `From ${formatUsd(stats.lowestPrice)} · ` : ""}
       {stats.numForSale} for sale

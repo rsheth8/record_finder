@@ -61,7 +61,7 @@ function FilterPill({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full border px-3 py-1.5 text-xs transition-colors",
+        "pressable focus-ring rounded-full border px-3 py-1.5 text-xs",
         active
           ? "border-accent bg-accent-muted text-accent"
           : "border-border text-muted hover:border-accent/50 hover:text-foreground",

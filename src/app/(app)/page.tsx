@@ -12,6 +12,8 @@ import { StaggerContainer, StaggerItem } from "@/components/motion/stagger";
 import { getCachedRecommendations } from "@/lib/db/queries";
 import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
+import { BLEED_PX, FULL_BLEED } from "@/lib/layout";
+import { cn } from "@/lib/utils";
 import { CheckCircle2, Circle, Compass, ClipboardList } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -139,14 +141,14 @@ export default async function HomePage() {
       ) : null}
 
       {topPicks.length > 0 && (
-        <section className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">
-          <div className="mb-3 flex items-center justify-between px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <section className={FULL_BLEED}>
+          <div className={cn(BLEED_PX, "mb-3 flex items-center justify-between")}>
             <h2 className="font-display text-xl font-semibold">Top picks for you</h2>
-            <Link href="/discover" className="text-sm text-accent hover:underline">
+            <Link href="/discover" className="focus-ring rounded-sm text-sm text-accent hover:underline">
               View all
             </Link>
           </div>
-          <CarouselRow title="" items={topPicks} bleed featured rowIndex={0} />
+          <CarouselRow title="" items={topPicks} bleed featured rowIndex={0} autoScroll />
         </section>
       )}
 

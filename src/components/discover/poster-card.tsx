@@ -118,16 +118,6 @@ export function PosterCard({
             )}
           </div>
 
-          <div className="poster-title-below hidden px-1 pt-2">
-            <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
-              {rec.title}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {rec.artist}
-              {rec.year ? ` · ${rec.year}` : ""}
-            </p>
-          </div>
-
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <span className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-[var(--color-text-inverse)] shadow-lg">
               {forSale ? (
@@ -140,6 +130,16 @@ export function PosterCard({
               )}
             </span>
           </div>
+        </div>
+
+        <div className="poster-title-below hidden px-2 pb-2 pt-2">
+          <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
+            {rec.title}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-muted">
+            {rec.artist}
+            {rec.year ? ` · ${rec.year}` : ""}
+          </p>
         </div>
       </Link>
     </Wrapper>

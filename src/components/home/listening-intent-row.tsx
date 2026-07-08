@@ -6,6 +6,8 @@ import {
   getCachedRecommendations,
 } from "@/lib/db/queries";
 import { getListeningIntentNudges } from "@/lib/recommendations/listening-intent";
+import { BLEED_PX, FULL_BLEED } from "@/lib/layout";
+import { cn } from "@/lib/utils";
 
 /** Async Server Component rendered inside a `<Suspense>` boundary (see Home
  * page) so the rate-limited Discogs validation calls it makes don't block the
@@ -28,12 +30,12 @@ export async function ListeningIntentRow({ userId }: { userId: string }) {
   if (nudges.length === 0) return null;
 
   return (
-    <section className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2">
-      <div className="mb-3 flex items-center justify-between px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+    <section className={cn(FULL_BLEED, "stream-fade-in")}>
+      <div className={cn(BLEED_PX, "mb-3 flex items-center justify-between")}>
         <h2 className="font-display text-xl font-semibold">
           You&apos;ve been playing this a lot
         </h2>
-        <Link href="/discover" className="text-sm text-accent hover:underline">
+        <Link href="/discover" className="focus-ring rounded-sm text-sm text-accent hover:underline">
           View all
         </Link>
       </div>

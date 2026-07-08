@@ -2,6 +2,8 @@ import { getSimilarReleases } from "@/lib/discogs/client";
 import { dedupeRecommendations } from "@/lib/recommendations/dedupe";
 import { enrichRecommendations } from "@/lib/recommendations/enrich";
 import { CarouselRow } from "@/components/discover/carousel-row";
+import { FULL_BLEED } from "@/lib/layout";
+import { cn } from "@/lib/utils";
 import type { DiscogsRelease } from "@/lib/types";
 
 /** Async Server Component rendered inside a `<Suspense>` boundary (see
@@ -21,7 +23,7 @@ export async function SimilarReleases({
   if (similar.length === 0) return null;
 
   return (
-    <section className="relative left-1/2 mt-8 w-screen max-w-[100vw] -translate-x-1/2">
+    <section className={cn(FULL_BLEED, "stream-fade-in mt-8")}>
       <CarouselRow title="More like this" items={similar} rowIndex={0} />
     </section>
   );

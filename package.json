@@ -16,6 +16,7 @@
     "@libsql/client": "^0.17.4",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "embla-carousel-auto-scroll": "^8.6.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.42.2",
     "gsap": "^3.15.0",

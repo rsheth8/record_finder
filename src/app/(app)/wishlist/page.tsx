@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { SignInPrompt } from "@/components/auth/sign-in-prompt";
 import { auth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StaggerContainer, StaggerItem } from "@/components/motion/stagger";
 import { Disc3, Heart } from "lucide-react";
 import { PRICE_DROP_THRESHOLD } from "@/lib/commerce/price-alerts";
 
@@ -56,17 +58,15 @@ export default async function WishlistPage() {
       </div>
 
       {items.length === 0 ? (
-        <div className="py-20 text-center">
-          <div className="relative mx-auto mb-6 w-fit">
-            <Heart className="h-14 w-14 text-muted/40" />
-            <div className="wishlist-shelf absolute -bottom-3 left-1/2 h-1 w-24 -translate-x-1/2 rounded-full" />
-          </div>
-          <p className="font-display text-lg font-semibold text-foreground">Your shelf is empty</p>
-          <p className="mt-2 text-sm text-muted">Save albums while browsing to build your list.</p>
+        <EmptyState
+          icon={Heart}
+          title="Your shelf is empty"
+          description="Save albums while browsing to build your list."
+        >
           <Link href="/discover" className="mt-6 inline-block">
             <Button>Browse Discover</Button>
           </Link>
-        </div>
+        </EmptyState>
       ) : (
         <div className="space-y-6">
           <div className="wishlist-shelf relative pb-2">
@@ -75,11 +75,13 @@ export default async function WishlistPage() {
               <span className="text-xs text-muted">Your shelf · {items.length} records</span>
             </div>
           </div>
-          <div className="space-y-3">
+          <StaggerContainer className="space-y-3">
             {items.map((item) => (
-              <WishlistCard key={item.id} item={item} />
+              <StaggerItem key={item.id}>
+                <WishlistCard item={item} />
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerContainer>
         </div>
       )}
     </div>

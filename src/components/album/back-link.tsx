@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 const LINK_CLASSES =
-  "mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-foreground";
+  "focus-ring mb-6 inline-flex items-center gap-1 rounded-sm text-sm text-muted transition-colors hover:text-foreground";
 
 // No event to subscribe to — history.length is read once and doesn't need to
 // stay reactive for this component's lifetime. useSyncExternalStore is used

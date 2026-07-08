@@ -5,46 +5,36 @@ import { ChevronLeft, ChevronRight, Disc3, Search as SearchIcon } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { DiscoverGrid } from "@/components/discover/discover-grid";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
+import { BLEED_MX, BLEED_PX, FULL_BLEED } from "@/lib/layout";
+import { cn } from "@/lib/utils";
 import type { Recommendation, SearchPagination } from "@/lib/types";
-
-// DiscoverGrid centers its content with a viewport-relative padding formula
-// (see discover-grid.tsx) meant for a full-bleed container, not one nested
-// inside AppShell's max-w-6xl wrapper — breaking out of that wrapper here
-// (same trick DiscoverFeed uses) keeps the math correct at wide viewports.
-const WIDE_PAD = "px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]";
-const WIDE_MARGIN = "mx-4 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]";
 
 function IntroState() {
   return (
-    <div className="flex flex-col items-center py-16 text-center">
-      <div className="relative mb-6">
-        <SearchIcon className="h-16 w-16 text-muted/40" />
-      </div>
-      <p className="font-display text-lg font-semibold text-foreground">
-        Search any artist or album on vinyl
-      </p>
-      <p className="mt-2 max-w-sm text-sm text-muted">
-        Real Discogs pressings, priced and rated — no quiz or sign-in required.
-      </p>
-    </div>
+    <EmptyState
+      icon={SearchIcon}
+      shelf={false}
+      title="Search any artist or album on vinyl"
+      description="Real Discogs pressings, priced and rated — no quiz or sign-in required."
+    />
   );
 }
 
 function NoResultsState({ query }: { query: string }) {
   return (
-    <div className="flex flex-col items-center py-16 text-center">
-      <div className="relative mb-6">
-        <Disc3 className="h-16 w-16 text-muted/40" />
-        <div className="absolute -bottom-2 left-1/2 h-1 w-20 -translate-x-1/2 rounded-full bg-border" />
-      </div>
-      <p className="font-display text-lg font-semibold text-foreground">No vinyl found</p>
-      <p className="mt-2 max-w-sm text-sm text-muted">
-        Nothing on Discogs matched &ldquo;{query}&rdquo;. Try a different spelling or a
-        shorter query.
-      </p>
-    </div>
+    <EmptyState
+      icon={Disc3}
+      title="No vinyl found"
+      description={
+        <>
+          Nothing on Discogs matched &ldquo;{query}&rdquo;. Try a different spelling
+          or a shorter query.
+        </>
+      }
+    />
   );
 }
 
@@ -114,8 +104,8 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   }
 
   return (
-    <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 space-y-6">
-      <form onSubmit={handleSubmit} className={`flex gap-2 ${WIDE_PAD}`}>
+    <div className={cn(FULL_BLEED, "space-y-6")}>
+      <form onSubmit={handleSubmit} className={cn(BLEED_PX, "flex gap-2")}>
         <div className="relative flex-1">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input
@@ -132,7 +122,7 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
       </form>
 
       {error && (
-        <div className={`rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error ${WIDE_MARGIN}`}>
+        <div className={cn(BLEED_MX, "rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error")}>
           {error}
         </div>
       )}
@@ -140,18 +130,18 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
       {loading ? (
         <VinylLoader variant="section" context="search" />
       ) : !hasSearched ? (
-        <Card className={WIDE_MARGIN}>
+        <Card className={BLEED_MX}>
           <IntroState />
         </Card>
       ) : results.length === 0 && !error ? (
-        <Card className={WIDE_MARGIN}>
+        <Card className={BLEED_MX}>
           <NoResultsState query={submittedQuery} />
         </Card>
       ) : (
         <div className="space-y-4 pb-8">
-          <DiscoverGrid items={results} />
+          <DiscoverGrid key={`${submittedQuery}-${page}`} items={results} />
           {pagination && pagination.pages > 1 && (
-            <div className={`flex items-center justify-center gap-3 ${WIDE_PAD}`}>
+            <div className={cn(BLEED_PX, "flex items-center justify-center gap-3")}>
               <Button
                 type="button"
                 variant="outline"

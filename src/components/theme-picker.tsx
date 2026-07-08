@@ -15,7 +15,7 @@ export function ThemePicker({ className }: { className?: string }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-elevated hover:text-foreground"
+        className="pressable focus-ring flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted hover:bg-surface-elevated hover:text-foreground"
         aria-expanded={open}
         aria-haspopup="listbox"
       >
@@ -46,7 +46,7 @@ export function ThemePicker({ className }: { className?: string }) {
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                  "focus-ring flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
                   theme === t.id
                     ? "bg-accent-muted text-foreground"
                     : "hover:bg-surface-elevated",

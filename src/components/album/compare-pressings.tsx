@@ -22,7 +22,7 @@ export async function ComparePressings({
   if (versions.length <= 1) return null;
 
   return (
-    <Card>
+    <Card className="stream-fade-in">
       <CardTitle>Compare pressings</CardTitle>
       <CardDescription className="mt-1">
         Other pressings of this album, most-wanted first
@@ -58,7 +58,7 @@ export async function ComparePressings({
               {isCurrent ? (
                 row
               ) : (
-                <Link href={`/album/${v.id}`} className="block hover:text-accent">
+                <Link href={`/album/${v.id}`} className="focus-ring block rounded-sm transition-colors hover:text-accent">
                   {row}
                 </Link>
               )}

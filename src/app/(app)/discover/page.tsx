@@ -35,8 +35,10 @@ export default async function DiscoverPage() {
   ]);
 
   return (
-    <div className="space-y-2">
-      <div className="px-4 sm:px-0">
+    <div className="space-y-6">
+      {/* AppShell already applies the horizontal gutter; the full-bleed feed
+          below re-derives the same edge, so no extra padding here. */}
+      <div>
         <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Discover</h1>
         <p className="mt-2 max-w-2xl text-muted">
           Scroll curated rows of vinyl matched to your taste, open any album for pressing

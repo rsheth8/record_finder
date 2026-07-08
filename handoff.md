@@ -1,6 +1,6 @@
 # Record Finder — Handoff
 
-Last updated: 2026-07-03
+Last updated: 2026-07-08
 
 ## What this is
 
@@ -155,6 +155,18 @@ Four features built entirely on data/infra already in place (no new schema, no n
 - **Reservation scarcity** — `getReservationCountForRelease()` (`src/lib/db/queries.ts`) counts existing `orders` rows for a release; shown as a "N collectors already reserved a spot" badge in the reserve-confirmation modal (`album/reserve-with-credits-button.tsx`). No cap — it never blocks a reservation, and the copy is deliberately careful not to imply a real inventory lock (there's no purchase-completion tracking; the buyer still completes the purchase on Discogs themselves).
 - **Listening-intent nudges** (`src/lib/recommendations/listening-intent.ts`, `home/listening-intent-row.tsx`) — surfaces albums the user has replayed 3+ times in the last 7 days, or that clear a taste-vector `albumWeights` threshold (≥0.7, reusing the existing `artistWeights` cutoff), that aren't already wishlisted or in the current recommendation batch. Each candidate is validated against a real Discogs vinyl pressing via `searchVinylRelease()` before surfacing. Home-page only, gated on Spotify connection, computed independently of the hourly recommendation cache (this signal is inherently time-sensitive).
 
+## Polish & hardening pass (2026-07-08)
+
+Full manual walkthrough of every user flow (quiz retake, discover rows/grid/filters/search, album detail, feedback, guest gating on wishlist/reservation, theming, mobile) plus targeted new test coverage. Found and fixed three real bugs, none of which were caught by the existing test suite because the affected code paths had no tests:
+
+- **Album pages showed "Unknown" as the artist** for any release whose Discogs `title` field didn't happen to be formatted `"Artist - Title"` (most don't — that convention only reliably holds for `/database/search` results, not `/releases/{id}`). `getRelease()` (`src/lib/discogs/client.ts`) now reads the artist from the response's own `artists` array instead of splitting the title, honoring each artist's `join` separator and stripping Discogs' `(2)`-style disambiguation suffix.
+- **Duplicate discover rows for the same genre** (e.g. both "Hip-Hop" and "Hip Hop") — quiz genre labels use hyphens, raw Discogs genre strings use spaces, and the row-building dedup in `groupRecommendations()` (`src/lib/recommendations/group.ts`) compared them as exact strings. Now normalized through the existing `normalize()` helper (`src/lib/recommendations/match.ts`) before comparing.
+- **Flaky `SQLITE_BUSY` test failures** — the local SQLite file had no `busy_timeout`, so concurrent connections (multiple vitest forked test files, or concurrent dev-server requests) could fail immediately instead of waiting for the lock. Fixed once in `src/lib/db/index.ts` rather than in test setup, since the same race is latent in local dev under concurrent requests too.
+
+Added tests for previously-uncovered pure logic: `group.ts` (including a regression test for the genre-dedup bug above), `normalize.ts` (legacy-cache coercion), and `commerce/pricing.ts`, `commerce/currency.ts`, `commerce/credits-service.ts`. Suite went from 113 to 143 tests, all green across repeated runs.
+
+**Still not covered by tests:** `scoreCandidates()` / `getQuizOnlyRecommendations()` in `engine.ts` (would need mocking Discogs/MusicBrainz/Last.fm/Apple Music clients — meaningful effort for a payoff not yet weighed against just re-reading the code), and anything requiring a real Spotify OAuth session (listening-intent row, wishlist, the Spotify-seeded recommendation path) — manual verification here was guest-mode only.
+
 ## Database schema
 
 Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0004_taste_intelligence.sql`.
@@ -252,6 +264,17 @@ npm run db:push
 | **Hard-capped reservations** | Reservation scarcity currently only shows a count ("N collectors reserved a spot"); there's no cap and a reservation never blocks. If real scarcity is wanted, decide between a flat per-release constant or `min(numForSale, X)` before implementing |
 | **Cross-browser-engine testing** | UI/mobile verification in this repo has been done via the Chromium-based preview tooling only (viewport resizing for mobile/tablet); Firefox/Safari rendering has not been separately verified |
 
+## Recommended next steps
+
+Roughly in priority order, reasoning about leverage vs. effort:
+
+1. **Instrument the success metrics that already exist on paper** (see "Success metrics" below). Every other decision about the recommendation engine — whether the finalize-score weights are right, whether quiz-only users need more signal, whether fair-value actually gets clicked — is a guess without like-rate and reason-citation data. This is mostly plumbing (log an event on feedback/reservation/wishlist actions to a new lightweight table) and unblocks everything downstream. Do this before investing further in scoring tweaks.
+2. **True price-history fair value.** This is the flagship "structurally can't be copied by a plain marketplace" feature per the north star, and the current batch-relative version is a placeholder. Needs an infra decision first (Vercel cron vs. GitHub Actions scheduled workflow vs. a manually-triggered route) plus a `price_history` table and a daily snapshot job sampling marketplace price/want/have per release. Worth scoping the infra decision even before the data model.
+3. **Round out the quiz** with the two deferred steps (artist recognition grid, vinyl format preference) — cheap, additive, and both directly feed scoring signals that already exist in the engine (format preference already exists as a *result* filter in discover; it's not yet a quiz *input*).
+4. **Decide reservation scarcity's teeth.** Right now it's a count with no cap — fine as a nudge, but if the product goal is real urgency, decide between a flat per-release constant or `min(numForSale, X)` and implement the cap. Low effort, but a product decision, not just an engineering one.
+5. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
+6. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (1) show the heuristic approach actually plateauing.
+
 ## Known constraints
 
 - **Spotify rate limits** — sync batches parallel fetches; 24h snapshot TTL; 1h recommendation cache
@@ -260,6 +283,7 @@ npm run db:push
 - **Guest wishlist** — requires sign-in; quiz and recommendations work for guests
 - **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut fit, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
 - **Fair value is relative, not historical** — see "True price-history / market fair value" above
+- **Local SQLite under concurrency** — the local file (both `record_finder.db` and the vitest throwaway db) now sets `PRAGMA busy_timeout` on connect so concurrent writers wait instead of throwing `SQLITE_BUSY` (see "Polish & hardening pass" above); WAL mode was deliberately not also enabled, since the mode switch itself needs a brief exclusive lock and caused the exact startup race it would be meant to fix
 
 ## Success metrics (from roadmap — not instrumented yet)
 

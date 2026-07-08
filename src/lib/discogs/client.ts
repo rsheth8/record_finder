@@ -233,11 +233,22 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
       identifiers?: { type: string; value: string; description?: string }[];
       companies?: { name: string; entity_type_name: string }[];
       extraartists?: { name: string; role: string }[];
+      artists?: { name: string; join?: string }[];
     }>(`/releases/${id}`);
 
-    const [artist, ...titleParts] = data.title.includes(" - ")
-      ? data.title.split(" - ")
-      : ["Unknown", data.title];
+    // Unlike /database/search results (title formatted "Artist - Title", see
+    // splitDiscogsTitle), /releases/{id} gives the artist separately via `artists`
+    // and `title` is just the album title with no artist prefix to split on.
+    // Each artist's `join` field is the separator before the *next* name
+    // (e.g. "Simon" + join:"&" + "Garfunkel" -> "Simon & Garfunkel").
+    const artist = data.artists?.length
+      ? data.artists.reduce((acc, a, i) => {
+          const name = a.name.replace(/\s\(\d+\)$/, "");
+          if (i === 0) return name;
+          const joiner = data.artists![i - 1].join?.trim();
+          return `${acc}${joiner ? ` ${joiner} ` : ", "}${name}`;
+        }, "")
+      : "Unknown";
 
     const cover =
       data.images?.find((i) => i.type === "primary")?.uri ??
@@ -264,7 +275,7 @@ export async function getRelease(id: number): Promise<DiscogsRelease | null> {
 
     return {
       id: data.id,
-      title: titleParts.join(" - ") || data.title,
+      title: data.title,
       artist,
       year: data.year ?? null,
       coverUrl: resolvedCover,

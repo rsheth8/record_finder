@@ -38,6 +38,18 @@ const client: Client = createClient({
 
 export const db: LibSQLDatabase<typeof schema> = drizzle(client, { schema });
 
+// Local dev and the test suite both open several concurrent connections to the
+// same file (multiple Next.js requests, or vitest's per-file forked processes).
+// Without this, a concurrent writer hits SQLITE_BUSY immediately instead of
+// waiting for the lock. (Deliberately not also switching to WAL mode here:
+// that mode change itself requires a brief exclusive lock, which — before any
+// connection has a busy_timeout set — is exactly the kind of startup race that
+// causes the SQLITE_BUSY this is meant to fix.) Not applicable to Turso
+// (libsql server protocol, not a local file).
+const pragmaPromise: Promise<void> | null = dbUrl.startsWith("file:")
+  ? client.execute("PRAGMA busy_timeout = 5000").then(() => undefined)
+  : null;
+
 let initPromise: Promise<void> | null = null;
 
 function migrationErrorText(error: unknown): string {
@@ -137,6 +149,7 @@ async function applyMigrationsTolerant(migrationsFolder: string) {
 export function initDb(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
+      if (pragmaPromise) await pragmaPromise;
       const migrationsFolder = join(process.cwd(), "drizzle", "migrations");
       try {
         await migrate(db, { migrationsFolder });

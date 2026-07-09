@@ -114,12 +114,16 @@ export function VinylLoader({
 
   if (variant === "inline") {
     return (
-      <div className="flex items-center gap-3 py-2">
+      <div className="vinyl-loader-enter flex items-center gap-3 py-2">
         <VinylDisc size="sm" />
         <CyclingMessage messages={messages} className="text-xs text-muted" />
       </div>
     );
   }
 
-  return <div className="flex min-h-[280px] items-center justify-center py-16">{content}</div>;
+  return (
+    <div className="vinyl-loader-enter flex min-h-[280px] items-center justify-center py-16">
+      {content}
+    </div>
+  );
 }

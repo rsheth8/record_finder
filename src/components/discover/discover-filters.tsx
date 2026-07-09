@@ -11,6 +11,7 @@ import {
   getAvailableGenres,
   hasContentFilters,
   type DiscoverFilterState,
+  type FormatOption,
   type SortOption,
 } from "@/lib/recommendations/filter";
 import { QUIZ_DECADES, type QuizDecade, type Recommendation } from "@/lib/types";
@@ -22,6 +23,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "newest", label: "Newest first" },
   { value: "oldest", label: "Oldest first" },
   { value: "highest_rated", label: "Highest rated" },
+  { value: "price_low", label: "Price: low to high" },
   { value: "artist_az", label: "Artist A–Z" },
 ];
 
@@ -30,6 +32,19 @@ const RATING_OPTIONS: { value: number | null; label: string }[] = [
   { value: 3, label: "3+ stars" },
   { value: 3.5, label: "3.5+ stars" },
   { value: 4, label: "4+ stars" },
+];
+
+const PRICE_OPTIONS: { value: number | null; label: string }[] = [
+  { value: null, label: "Any price" },
+  { value: 15, label: "Under $15" },
+  { value: 25, label: "Under $25" },
+  { value: 50, label: "Under $50" },
+];
+
+const FORMAT_OPTIONS: { value: FormatOption; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "albums", label: "Albums" },
+  { value: "singles", label: "Singles / EPs" },
 ];
 
 function FilterPill({
@@ -46,7 +61,7 @@ function FilterPill({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full border px-3 py-1.5 text-xs transition-colors",
+        "pressable focus-ring rounded-full border px-3 py-1.5 text-xs",
         active
           ? "border-accent bg-accent-muted text-accent"
           : "border-border text-muted hover:border-accent/50 hover:text-foreground",
@@ -81,6 +96,10 @@ export function DiscoverFilters({
     filters.deepCutOnly ? 1 : 0,
     filters.minRating ? 1 : 0,
     filters.search ? 1 : 0,
+    filters.forSaleOnly ? 1 : 0,
+    filters.maxPrice ? 1 : 0,
+    filters.format !== "all" ? 1 : 0,
+    filters.fairValueOnly ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
 
   function toggleGenre(genre: string) {
@@ -142,7 +161,7 @@ export function DiscoverFilters({
 
       {expanded && (
         <div className="space-y-5 rounded-xl border border-border bg-surface p-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
             <label className="block space-y-2">
               <span className="text-xs font-medium uppercase tracking-wide text-muted">
                 Sort by
@@ -181,6 +200,44 @@ export function DiscoverFilters({
                 ))}
               </Select>
             </label>
+
+            <label className="block space-y-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                Max price
+              </span>
+              <Select
+                value={filters.maxPrice ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    maxPrice: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+              >
+                {PRICE_OPTIONS.map((opt) => (
+                  <option key={opt.label} value={opt.value ?? ""}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
+              Format
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {FORMAT_OPTIONS.map((opt) => (
+                <FilterPill
+                  key={opt.value}
+                  active={filters.format === opt.value}
+                  onClick={() => onChange({ ...filters, format: opt.value })}
+                >
+                  {opt.label}
+                </FilterPill>
+              ))}
+            </div>
           </div>
 
           {availableGenres.length > 0 && (
@@ -219,20 +276,52 @@ export function DiscoverFilters({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
-            <Checkbox
-              checked={filters.deepCutOnly}
-              onChange={(e) =>
-                onChange({ ...filters, deepCutOnly: e.target.checked })
-              }
-            />
-            <div>
-              <p className="text-sm font-medium text-foreground">Deep cuts only</p>
-              <p className="text-xs text-muted">
-                Lesser-known pressings and lower-profile picks
-              </p>
-            </div>
-          </label>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+              <Checkbox
+                checked={filters.deepCutOnly}
+                onChange={(e) =>
+                  onChange({ ...filters, deepCutOnly: e.target.checked })
+                }
+              />
+              <div>
+                <p className="text-sm font-medium text-foreground">Deep cuts only</p>
+                <p className="text-xs text-muted">
+                  Lesser-known pressings and lower-profile picks
+                </p>
+              </div>
+            </label>
+
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+              <Checkbox
+                checked={filters.forSaleOnly}
+                onChange={(e) =>
+                  onChange({ ...filters, forSaleOnly: e.target.checked })
+                }
+              />
+              <div>
+                <p className="text-sm font-medium text-foreground">For sale only</p>
+                <p className="text-xs text-muted">
+                  Only show pressings with active Discogs listings
+                </p>
+              </div>
+            </label>
+
+            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+              <Checkbox
+                checked={filters.fairValueOnly}
+                onChange={(e) =>
+                  onChange({ ...filters, fairValueOnly: e.target.checked })
+                }
+              />
+              <div>
+                <p className="text-sm font-medium text-foreground">Good value only</p>
+                <p className="text-xs text-muted">
+                  High demand, priced low compared to your other picks
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
       )}
     </div>

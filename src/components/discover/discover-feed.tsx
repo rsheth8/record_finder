@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CarouselRow } from "@/components/discover/carousel-row";
 import { DiscoverFilters } from "@/components/discover/discover-filters";
 import { DiscoverGrid } from "@/components/discover/discover-grid";
-import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   DEFAULT_DISCOVER_FILTERS,
   filterRecommendations,
@@ -15,24 +17,41 @@ import {
 import { groupRecommendations } from "@/lib/recommendations/group";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
 import { SOURCE_LABELS, type SourceError } from "@/lib/errors";
+import { BLEED_MX, BLEED_PX, FULL_BLEED } from "@/lib/layout";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
+import { useNowMinute } from "@/hooks/use-now-minute";
 import { Disc3, LayoutGrid, RefreshCw, Rows3, ShoppingBag, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "rows" | "grid";
 
-function EmptyShelf() {
+/** "in 42m" / "in 2h 5m" / "refreshing soon" — how long until the cached picks
+ * expire and regenerate on next visit. */
+function formatRefreshHint(expiresAt: Date, now: Date): string {
+  const diffMin = Math.round((expiresAt.getTime() - now.getTime()) / 60_000);
+  if (diffMin <= 0) return "refreshing soon";
+  if (diffMin < 60) return `in ${diffMin}m`;
+  const hours = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  return mins > 0 ? `in ${hours}h ${mins}m` : `in ${hours}h`;
+}
+
+function EmptyShelf({ searchQuery }: { searchQuery: string }) {
   return (
-    <div className="flex flex-col items-center py-16 text-center">
-      <div className="relative mb-6">
-        <Disc3 className="h-16 w-16 text-muted/40" />
-        <div className="absolute -bottom-2 left-1/2 h-1 w-20 -translate-x-1/2 rounded-full bg-border" />
-      </div>
-      <p className="font-display text-lg font-semibold text-foreground">Shelf is empty</p>
-      <p className="mt-2 max-w-sm text-sm text-muted">
-        No albums match your filters. Try broadening your search or refreshing picks.
-      </p>
-    </div>
+    <EmptyState
+      icon={Disc3}
+      title="Shelf is empty"
+      description="No albums match your filters. Try broadening your search or refreshing picks."
+    >
+      {searchQuery && (
+        <Link
+          href={`/search?q=${encodeURIComponent(searchQuery)}`}
+          className="focus-ring mt-4 rounded-sm text-sm font-medium text-accent hover:underline"
+        >
+          Search all vinyl for &ldquo;{searchQuery}&rdquo; →
+        </Link>
+      )}
+    </EmptyState>
   );
 }
 
@@ -43,6 +62,7 @@ export function DiscoverFeed({
   error: initialError,
   degraded: initialDegraded = [],
   needsGeneration = false,
+  cacheExpiresAt = null,
 }: {
   recommendations: Recommendation[];
   quizGenres?: QuizGenre[];
@@ -50,6 +70,9 @@ export function DiscoverFeed({
   error?: string | null;
   degraded?: SourceError[];
   needsGeneration?: boolean;
+  /** ISO timestamp for when the cached picks expire and regenerate — used only
+   * to show a "refreshes automatically in Xm" hint, not to drive any refetch. */
+  cacheExpiresAt?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -59,6 +82,7 @@ export function DiscoverFeed({
   const [dismissedDegraded, setDismissedDegraded] = useState(false);
   const [filters, setFilters] = useState(DEFAULT_DISCOVER_FILTERS);
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
+  const now = useNowMinute();
   const autoTriggered = useRef(false);
 
   // First visit with no cached picks: generate them client-side (with the loader)
@@ -123,8 +147,8 @@ export function DiscoverFeed({
   const remainingRows = rows.slice(1);
 
   return (
-    <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 space-y-6">
-      <div className="mx-4 rounded-xl border border-border bg-surface/60 p-4 noir-glass sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+    <div className={cn(FULL_BLEED, "space-y-6")}>
+      <div className={cn(BLEED_MX, "rounded-xl border border-border bg-surface/60 p-4 noir-glass")}>
         <p className="text-xs font-medium uppercase tracking-wide text-accent">
           How it works
         </p>
@@ -150,7 +174,7 @@ export function DiscoverFeed({
         </ol>
       </div>
 
-      <div className="px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+      <div className={BLEED_PX}>
         <DiscoverFilters
           recommendations={recommendations}
           filters={filters}
@@ -159,13 +183,13 @@ export function DiscoverFeed({
         />
       </div>
 
-      <div className="flex items-center justify-between gap-3 px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+      <div className={cn(BLEED_PX, "flex items-center justify-between gap-3")}>
         <div className="flex rounded-lg border border-border p-0.5">
           <button
             type="button"
             onClick={() => setViewMode("rows")}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
+              "pressable focus-ring flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs",
               viewMode === "rows"
                 ? "bg-surface-elevated text-foreground"
                 : "text-muted hover:text-foreground",
@@ -178,7 +202,7 @@ export function DiscoverFeed({
             type="button"
             onClick={() => setViewMode("grid")}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
+              "pressable focus-ring flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs",
               viewMode === "grid"
                 ? "bg-surface-elevated text-foreground"
                 : "text-muted hover:text-foreground",
@@ -189,26 +213,33 @@ export function DiscoverFeed({
           </button>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refresh}
-          disabled={loading}
-          className="gap-2"
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          Refresh picks
-        </Button>
+        <div className="flex items-center gap-3">
+          {!loading && cacheExpiresAt && now && (
+            <p className="hidden text-xs text-muted sm:block">
+              Auto-refreshes {formatRefreshHint(new Date(cacheExpiresAt), now)}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={loading}
+            className="gap-2"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            Refresh picks
+          </Button>
+        </div>
       </div>
 
       {error && (
-        <div className="mx-4 rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <div className={cn(BLEED_MX, "rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error")}>
           {error}
         </div>
       )}
 
       {!dismissedDegraded && degraded.length > 0 && (
-        <div className="mx-4 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <div className={cn(BLEED_MX, "flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning")}>
           <div className="flex-1 space-y-1">
             {degraded.map((d, i) => (
               <p key={i}>
@@ -220,7 +251,7 @@ export function DiscoverFeed({
           <button
             type="button"
             onClick={() => setDismissedDegraded(true)}
-            className="text-warning/70 hover:text-warning"
+            className="focus-ring rounded-sm text-warning/70 transition-colors hover:text-warning"
             aria-label="Dismiss"
           >
             <X className="h-4 w-4" />
@@ -231,21 +262,20 @@ export function DiscoverFeed({
       {loading ? (
         <VinylLoader variant="section" context="discover" />
       ) : filtered.length === 0 ? (
-        <Card className="mx-4 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+        <Card className={BLEED_MX}>
           {recommendations.length === 0 ? (
-            <>
-              <CardTitle>No picks yet</CardTitle>
-              <CardDescription className="mt-2">
-                Complete the quiz and connect Spotify to generate picks.
-              </CardDescription>
-            </>
+            <EmptyState
+              icon={Disc3}
+              title="No picks yet"
+              description="Complete the quiz and connect Spotify to generate picks."
+            />
           ) : (
-            <EmptyShelf />
+            <EmptyShelf searchQuery={filters.search.trim()} />
           )}
         </Card>
       ) : viewMode === "grid" || contentFiltering ? (
         <div className="space-y-4 pb-8">
-          <h2 className="px-4 font-display text-lg font-semibold text-foreground sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]">
+          <h2 className={cn(BLEED_PX, "font-display text-lg font-semibold text-foreground")}>
             {filteredRowTitle}
           </h2>
           <DiscoverGrid items={filtered} />

@@ -4,9 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { formatCredits } from "@/lib/commerce/pricing";
-import { Loader2, ShoppingBag } from "lucide-react";
+import { Loader2, ShoppingBag, Users } from "lucide-react";
 
 export function ReserveWithCreditsButton({
   discogsReleaseId,
@@ -14,6 +15,7 @@ export function ReserveWithCreditsButton({
   artist,
   creditCost,
   numForSale,
+  reservationCount = 0,
   compact = false,
 }: {
   discogsReleaseId: number;
@@ -21,6 +23,9 @@ export function ReserveWithCreditsButton({
   artist: string;
   creditCost: number;
   numForSale: number;
+  /** How many other collectors have already reserved a concierge spot for
+   * this release — a social scarcity signal, not a real inventory cap. */
+  reservationCount?: number;
   compact?: boolean;
 }) {
   const router = useRouter();
@@ -101,6 +106,12 @@ export function ReserveWithCreditsButton({
           title="Confirm reservation"
         >
           <div className="space-y-4">
+            {reservationCount > 0 && (
+              <Badge variant="warning" className="gap-1">
+                <Users className="h-3 w-3" />
+                {reservationCount} collector{reservationCount === 1 ? "" : "s"} already reserved a spot
+              </Badge>
+            )}
             <p className="text-sm text-muted">
               Spend <span className="font-semibold text-accent">{formatCredits(creditCost)}</span>{" "}
               to hold a concierge queue spot for{" "}

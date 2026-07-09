@@ -3,7 +3,7 @@ import { DiscoverFeed } from "@/components/discover/discover-feed";
 import { Button } from "@/components/ui/button";
 import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
-import { getCachedRecommendations } from "@/lib/db/queries";
+import { getCachedRecommendations, getRecommendationCacheExpiry } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +29,16 @@ export default async function DiscoverPage() {
   // Read cached picks only — generation (a ~25s serial Discogs pass) is kicked
   // off client-side so it never blocks the page request or trips a serverless
   // function timeout. An empty cache means "not generated yet".
-  const cached = (await getCachedRecommendations(userId!)) ?? [];
+  const [cached, cacheExpiresAt] = await Promise.all([
+    getCachedRecommendations(userId!).then((r) => r ?? []),
+    getRecommendationCacheExpiry(userId!),
+  ]);
 
   return (
-    <div className="space-y-2">
-      <div className="px-4 sm:px-0">
+    <div className="space-y-6">
+      {/* AppShell already applies the horizontal gutter; the full-bleed feed
+          below re-derives the same edge, so no extra padding here. */}
+      <div>
         <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Discover</h1>
         <p className="mt-2 max-w-2xl text-muted">
           Scroll curated rows of vinyl matched to your taste, open any album for pressing
@@ -45,6 +50,7 @@ export default async function DiscoverPage() {
           quizGenres={profile.genres}
           quizDecades={profile.decades}
           needsGeneration={cached.length === 0}
+          cacheExpiresAt={cacheExpiresAt?.toISOString() ?? null}
         />
     </div>
   );

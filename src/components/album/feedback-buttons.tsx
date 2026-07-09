@@ -68,7 +68,7 @@ export function FeedbackButtons({
             disabled={loading}
             onClick={() => choose(s, toast)}
             className={cn(
-              "inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-colors disabled:opacity-50",
+              "pressable focus-ring inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm disabled:opacity-50",
               active
                 ? "border-accent bg-accent-muted text-accent"
                 : "border-border text-muted hover:border-accent/50 hover:text-foreground",

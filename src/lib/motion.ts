@@ -15,6 +15,15 @@ export const staggerContainer = {
   },
 };
 
+/** Tighter stagger for dense grids (search results, discover grid) — the
+ * default 0.1s per child reads as sluggish past ~6 items. */
+export const staggerGrid = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.04, delayChildren: 0.05 },
+  },
+};
+
 export const pageTransition = {
   initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0 },

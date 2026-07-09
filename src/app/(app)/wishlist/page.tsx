@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { getWishlist } from "@/lib/db/queries";
+import { getWishlist, getLatestPriceSnapshot } from "@/lib/db/queries";
 import { WishlistCard } from "@/components/album/wishlist-button";
 import { Button } from "@/components/ui/button";
 import { SignInPrompt } from "@/components/auth/sign-in-prompt";
 import { auth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StaggerContainer, StaggerItem } from "@/components/motion/stagger";
 import { Disc3, Heart } from "lucide-react";
+import { PRICE_DROP_THRESHOLD } from "@/lib/commerce/price-alerts";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +23,25 @@ export default async function WishlistPage() {
     );
   }
 
-  const items = await getWishlist(session.user.id);
+  const wishlist = await getWishlist(session.user.id);
+
+  // A pure DB read per item (no Discogs calls) — cheap even N+1, since
+  // wishlists are small and this only runs on page load, not per request
+  // elsewhere. Same "meaningful drop" bar as the email alerts, so the badge
+  // here and what triggers an email agree on what counts as a real drop.
+  const items = await Promise.all(
+    wishlist.map(async (item) => {
+      const latest = await getLatestPriceSnapshot(item.discogsReleaseId);
+      const baseline = item.lastAlertedPrice ?? item.priceAtAdd;
+      const priceDrop =
+        baseline != null &&
+        latest?.lowestPrice != null &&
+        latest.lowestPrice <= baseline * (1 - PRICE_DROP_THRESHOLD)
+          ? { from: baseline, to: latest.lowestPrice }
+          : null;
+      return { ...item, priceDrop };
+    }),
+  );
 
   return (
     <div className="space-y-8">
@@ -37,17 +58,15 @@ export default async function WishlistPage() {
       </div>
 
       {items.length === 0 ? (
-        <div className="py-20 text-center">
-          <div className="relative mx-auto mb-6 w-fit">
-            <Heart className="h-14 w-14 text-muted/40" />
-            <div className="wishlist-shelf absolute -bottom-3 left-1/2 h-1 w-24 -translate-x-1/2 rounded-full" />
-          </div>
-          <p className="font-display text-lg font-semibold text-foreground">Your shelf is empty</p>
-          <p className="mt-2 text-sm text-muted">Save albums while browsing to build your list.</p>
+        <EmptyState
+          icon={Heart}
+          title="Your shelf is empty"
+          description="Save albums while browsing to build your list."
+        >
           <Link href="/discover" className="mt-6 inline-block">
             <Button>Browse Discover</Button>
           </Link>
-        </div>
+        </EmptyState>
       ) : (
         <div className="space-y-6">
           <div className="wishlist-shelf relative pb-2">
@@ -56,11 +75,13 @@ export default async function WishlistPage() {
               <span className="text-xs text-muted">Your shelf · {items.length} records</span>
             </div>
           </div>
-          <div className="space-y-3">
+          <StaggerContainer className="space-y-3">
             {items.map((item) => (
-              <WishlistCard key={item.id} item={item} />
+              <StaggerItem key={item.id}>
+                <WishlistCard item={item} />
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerContainer>
         </div>
       )}
     </div>

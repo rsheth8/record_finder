@@ -1,14 +1,18 @@
+import { Suspense } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { FeedbackButtons } from "@/components/album/feedback-buttons";
-import { CarouselRow } from "@/components/discover/carousel-row";
+import { SimilarReleases } from "@/components/album/similar-releases";
+import { PressingDetails } from "@/components/album/pressing-details";
+import { ComparePressings } from "@/components/album/compare-pressings";
 import { AlbumActions } from "@/components/album/album-actions";
+import { BackLink } from "@/components/album/back-link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { VinylLoader } from "@/components/ui/vinyl-loader";
 import { usdToCredits, formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
-import type { DiscogsRelease, FeedbackSignal, Recommendation } from "@/lib/types";
-import { ArrowLeft, Disc3, Star } from "lucide-react";
+import type { DiscogsRelease, FeedbackSignal } from "@/lib/types";
+import { Disc3, Sparkles, Star } from "lucide-react";
 
 export function AlbumDetail({
   release,
@@ -16,7 +20,8 @@ export function AlbumDetail({
   inWishlist,
   feedbackSignal,
   recReasons,
-  similar,
+  fairValue = false,
+  reservationCount = 0,
   userId,
   signedIn,
 }: {
@@ -25,7 +30,12 @@ export function AlbumDetail({
   inWishlist: boolean;
   feedbackSignal: FeedbackSignal | null;
   recReasons: string[];
-  similar: Recommendation[];
+  /** Whether this pick was flagged as batch-relative good value the last time
+   * it appeared in the user's recommendation feed. See fair-value.ts. */
+  fairValue?: boolean;
+  /** How many collectors have already reserved a concierge spot for this
+   * release — a social scarcity signal, not a real inventory cap. */
+  reservationCount?: number;
   userId: string | null;
   signedIn: boolean;
 }) {
@@ -54,13 +64,7 @@ export function AlbumDetail({
           </div>
         )}
         <div className="relative px-4 py-8 md:px-8">
-          <Link
-            href="/discover"
-            className="mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Discover
-          </Link>
+          <BackLink />
 
           <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
             <div className="relative mx-auto h-56 w-56 shrink-0 overflow-hidden rounded-xl bg-surface-elevated shadow-2xl sm:mx-0 sm:h-64 sm:w-64">
@@ -111,6 +115,13 @@ export function AlbumDetail({
                   From {formatUsd(marketplace.lowestPrice)}
                 </p>
               )}
+
+              {fairValue && (
+                <Badge variant="success" className="gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  Good value — high demand, priced low
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -140,6 +151,7 @@ export function AlbumDetail({
               spotifyUrl={spotifyUrl}
               inWishlist={inWishlist}
               forSale={!!forSale}
+              reservationCount={reservationCount}
             />
           </div>
           {userId && (
@@ -189,6 +201,20 @@ export function AlbumDetail({
         </Card>
       )}
 
+      <PressingDetails release={release} />
+
+      {release.masterId && (
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-4">
+              <VinylLoader variant="inline" message="Finding other pressings..." />
+            </div>
+          }
+        >
+          <ComparePressings masterId={release.masterId} currentReleaseId={release.id} />
+        </Suspense>
+      )}
+
       {release.tracklist.length > 0 && (
         <Card>
           <CardTitle>Tracklist</CardTitle>
@@ -230,11 +256,15 @@ export function AlbumDetail({
       )}
       </div>
 
-      {similar.length > 0 && (
-        <section className="relative left-1/2 mt-8 w-screen max-w-[100vw] -translate-x-1/2">
-          <CarouselRow title="More like this" items={similar} rowIndex={0} />
-        </section>
-      )}
+      <Suspense
+        fallback={
+          <div className="mt-8 flex justify-center">
+            <VinylLoader variant="inline" message="Finding similar records..." />
+          </div>
+        }
+      >
+        <SimilarReleases release={release} />
+      </Suspense>
 
       {/* Mobile sticky action bar */}
       <div className="mobile-action-bar fixed bottom-0 left-0 right-0 z-40 p-3 md:hidden">
@@ -252,6 +282,7 @@ export function AlbumDetail({
           spotifyUrl={spotifyUrl}
           inWishlist={inWishlist}
           forSale={!!forSale}
+          reservationCount={reservationCount}
           compact
         />
       </div>

@@ -21,6 +21,7 @@ export function AlbumActions({
   spotifyUrl,
   inWishlist,
   forSale,
+  reservationCount = 0,
   compact = false,
 }: {
   discogsReleaseId: number;
@@ -36,6 +37,7 @@ export function AlbumActions({
   spotifyUrl: string | null;
   inWishlist: boolean;
   forSale: boolean;
+  reservationCount?: number;
   compact?: boolean;
 }) {
   const size = compact ? "sm" : "md";
@@ -58,6 +60,7 @@ export function AlbumActions({
           artist={artist}
           creditCost={creditCost}
           numForSale={numForSale}
+          reservationCount={reservationCount}
           compact={compact}
         />
         <WishlistButton
@@ -99,7 +102,7 @@ export function AlbumActions({
             href={discogsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-accent hover:underline"
+            className="focus-ring inline-flex items-center gap-1 rounded-sm text-accent hover:underline"
           >
             <ExternalLink className="h-3 w-3" />
             Or browse all listings on Discogs

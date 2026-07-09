@@ -1,11 +1,15 @@
 import type { QuizDecade, Recommendation } from "@/lib/types";
+import { isFullAlbum } from "@/lib/recommendations/match";
 
 export type SortOption =
   | "best_match"
   | "newest"
   | "oldest"
   | "highest_rated"
-  | "artist_az";
+  | "artist_az"
+  | "price_low";
+
+export type FormatOption = "all" | "albums" | "singles";
 
 export type DiscoverFilterState = {
   search: string;
@@ -14,6 +18,10 @@ export type DiscoverFilterState = {
   sort: SortOption;
   deepCutOnly: boolean;
   minRating: number | null;
+  forSaleOnly: boolean;
+  maxPrice: number | null;
+  format: FormatOption;
+  fairValueOnly: boolean;
 };
 
 export const DEFAULT_DISCOVER_FILTERS: DiscoverFilterState = {
@@ -23,6 +31,10 @@ export const DEFAULT_DISCOVER_FILTERS: DiscoverFilterState = {
   sort: "best_match",
   deepCutOnly: false,
   minRating: null,
+  forSaleOnly: false,
+  maxPrice: null,
+  format: "all",
+  fairValueOnly: false,
 };
 
 export function getAvailableGenres(recommendations: Recommendation[]): string[] {
@@ -47,9 +59,17 @@ function matchesDecade(rec: Recommendation, decade: QuizDecade): boolean {
   return Math.floor(rec.year / 10) * 10 === decadeNum;
 }
 
-function isDeepCut(rec: Recommendation): boolean {
-  if (rec.score < 40) return true;
+/** Below this Discogs want count a pressing reads as a deep cut rather than a
+ * mainstream staple (mirrors the recommendation engine's popularity threshold). */
+const DEEP_CUT_WANT_MAX = 500;
+
+/** A "deep cut": an obscure/lesser-known pressing — thin rating volume or few
+ * collectors chasing it. Deliberately keyed on the record's own reach, not the
+ * match score, which is now a normalized quality blend rather than a proxy for
+ * obscurity. Shared with the discover grouping so both agree what's a deep cut. */
+export function isDeepCut(rec: Recommendation): boolean {
   if (rec.ratingCount !== null && rec.ratingCount < 50) return true;
+  if (rec.wantCount !== null && rec.wantCount < DEEP_CUT_WANT_MAX) return true;
   return false;
 }
 
@@ -87,6 +107,23 @@ export function filterRecommendations(
       }
     }
 
+    if (filters.forSaleOnly && !(rec.marketplace && rec.marketplace.numForSale > 0)) {
+      return false;
+    }
+
+    if (filters.maxPrice !== null) {
+      const price = rec.marketplace?.lowestPrice ?? null;
+      if (price === null || price > filters.maxPrice) return false;
+    }
+
+    if (filters.format !== "all") {
+      const fullAlbum = isFullAlbum(rec.formats);
+      if (filters.format === "albums" && !fullAlbum) return false;
+      if (filters.format === "singles" && fullAlbum) return false;
+    }
+
+    if (filters.fairValueOnly && !rec.fairValue) return false;
+
     return true;
   });
 
@@ -111,6 +148,12 @@ export function sortRecommendations(
       );
     case "artist_az":
       return sorted.sort((a, b) => a.artist.localeCompare(b.artist));
+    case "price_low": {
+      // Cheapest first; picks without a known price sink to the bottom.
+      const priceOf = (r: Recommendation) =>
+        r.marketplace?.lowestPrice ?? Number.POSITIVE_INFINITY;
+      return sorted.sort((a, b) => priceOf(a) - priceOf(b));
+    }
     case "best_match":
     default:
       return sorted.sort((a, b) => b.score - a.score);
@@ -124,7 +167,11 @@ export function hasContentFilters(filters: DiscoverFilterState): boolean {
     filters.genres.length > 0 ||
     filters.decades.length > 0 ||
     filters.deepCutOnly ||
-    filters.minRating !== null
+    filters.minRating !== null ||
+    filters.forSaleOnly ||
+    filters.maxPrice !== null ||
+    filters.format !== "all" ||
+    filters.fairValueOnly
   );
 }
 

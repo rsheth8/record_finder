@@ -17,6 +17,12 @@ export const LOADING_MESSAGES = {
     "Scanning top artists...",
     "Syncing your listening history...",
   ],
+  search: [
+    "Searching the crates...",
+    "Cross-referencing Discogs...",
+    "Sorting through pressings...",
+    "Pricing out listings...",
+  ],
   general: [
     "Loading...",
     "Just a sec...",

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Compass, Disc3, Heart, Home } from "lucide-react";
+import { Compass, Disc3, Heart, Home, Search } from "lucide-react";
 import { CreditsNavLink } from "@/components/credits/credits-nav-link";
 import { ThemePicker } from "@/components/theme-picker";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home, exact: true },
+  { href: "/search", label: "Search", icon: Search, exact: false },
   { href: "/discover", label: "Discover", icon: Compass, exact: false },
   { href: "/wishlist", label: "Wishlist", icon: Heart, exact: false },
 ];
@@ -24,7 +25,7 @@ export function AppNav() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <Link
           href="/"
-          className="flex items-center gap-2.5 font-display text-lg font-semibold text-foreground"
+          className="focus-ring flex items-center gap-2.5 rounded-lg font-display text-lg font-semibold text-foreground"
         >
           <motion.div
             animate={reducedMotion ? {} : { rotate: [0, 360] }}
@@ -43,7 +44,7 @@ export function AppNav() {
                 key={href}
                 href={href}
                 className={cn(
-                  "relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                  "focus-ring relative flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors",
                   active
                     ? "bg-accent-muted text-accent"
                     : "text-muted hover:bg-surface-elevated hover:text-foreground",

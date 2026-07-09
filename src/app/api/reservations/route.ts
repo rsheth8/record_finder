@@ -4,6 +4,7 @@ import {
   createReservation,
   ensureUser,
   getCreditBalance,
+  getReservationCountForRelease,
 } from "@/lib/db/queries";
 import { getMarketplaceStats } from "@/lib/discogs/client";
 import { usdToCredits } from "@/lib/commerce/pricing";
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
   });
 
   const newBalance = await getCreditBalance(session.user.id);
+  const reservationCount = await getReservationCountForRelease(discogsReleaseId);
 
-  return NextResponse.json({ reservation, balance: newBalance });
+  return NextResponse.json({ reservation, balance: newBalance, reservationCount });
 }

@@ -8,7 +8,7 @@ import { formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/motion";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { Disc3, ExternalLink, ShoppingBag, Star } from "lucide-react";
+import { Disc3, ExternalLink, ShoppingBag, Sparkles, Star } from "lucide-react";
 
 export function PosterCard({
   rec,
@@ -87,6 +87,13 @@ export function PosterCard({
             </div>
           )}
 
+          {rec.fairValue && (
+            <div className="absolute left-2 top-9 flex items-center gap-1 rounded-md bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-success shadow-sm backdrop-blur-sm">
+              <Sparkles className="h-3 w-3" />
+              Good value
+            </div>
+          )}
+
           {rec.communityRating && rec.communityRating >= 3.5 && (
             <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-warning backdrop-blur-sm">
               <Star className="h-3 w-3 fill-warning text-warning" />
@@ -111,16 +118,6 @@ export function PosterCard({
             )}
           </div>
 
-          <div className="poster-title-below hidden px-1 pt-2">
-            <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
-              {rec.title}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {rec.artist}
-              {rec.year ? ` · ${rec.year}` : ""}
-            </p>
-          </div>
-
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <span className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-[var(--color-text-inverse)] shadow-lg">
               {forSale ? (
@@ -133,6 +130,16 @@ export function PosterCard({
               )}
             </span>
           </div>
+        </div>
+
+        <div className="poster-title-below hidden px-2 pb-2 pt-2">
+          <p className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">
+            {rec.title}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-muted">
+            {rec.artist}
+            {rec.year ? ` · ${rec.year}` : ""}
+          </p>
         </div>
       </Link>
     </Wrapper>

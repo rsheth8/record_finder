@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import {
   createContext,
@@ -10,6 +11,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { spring } from "@/lib/motion";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 type ToastVariant = "success" | "error" | "info";
 
@@ -39,6 +42,7 @@ const VARIANT_CLASS: Record<ToastVariant, string> = {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const reducedMotion = useReducedMotion();
   // Render the toast container only after client mount to avoid SSR/hydration
   // mismatch on the portal-style fixed overlay.
   const mounted = useSyncExternalStore(
@@ -67,13 +71,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       {mounted && (
         <div className="pointer-events-none fixed bottom-20 right-4 z-50 flex w-full max-w-sm flex-col gap-2 md:bottom-4">
-          {toasts.map((toast) => {
-            const Icon = VARIANT_ICON[toast.variant];
-            return (
-              <div
-                key={toast.id}
-                role="status"
-                className={cn(
+          <AnimatePresence initial={false}>
+            {toasts.map((toast) => {
+              const Icon = VARIANT_ICON[toast.variant];
+              return (
+                <motion.div
+                  key={toast.id}
+                  role="status"
+                  layout={!reducedMotion}
+                  initial={reducedMotion ? false : { opacity: 0, y: 16, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.97 }}
+                  transition={reducedMotion ? { duration: 0 } : spring}
+                  className={cn(
                     "pointer-events-auto flex items-start gap-2 rounded-lg border bg-surface/95 px-4 py-3 text-sm shadow-xl backdrop-blur",
                     VARIANT_CLASS[toast.variant],
                   )}
@@ -83,14 +93,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => dismiss(toast.id)}
-                    className="text-muted hover:text-foreground"
-                  aria-label="Dismiss"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            );
-          })}
+                    className="focus-ring rounded-sm text-muted transition-colors hover:text-foreground"
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
     </ToastContext.Provider>

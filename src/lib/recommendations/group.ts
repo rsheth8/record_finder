@@ -1,4 +1,6 @@
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import { isDeepCut } from "@/lib/recommendations/filter";
+import { normalize } from "@/lib/recommendations/match";
 
 export type RecommendationRow = {
   id: string;
@@ -8,17 +10,15 @@ export type RecommendationRow = {
 
 const MIN_ROW_ITEMS = 3;
 
+// Quiz genre labels use hyphens ("Hip-Hop") while raw Discogs genres use
+// spaces ("Hip Hop") — normalize both sides so they're treated as the same
+// genre instead of producing two near-duplicate rows.
 function matchesGenre(rec: Recommendation, genre: string): boolean {
-  const g = genre.toLowerCase();
-  return rec.genres.some(
-    (rg) => rg.toLowerCase().includes(g) || g.includes(rg.toLowerCase()),
-  );
-}
-
-function isDeepCutCandidate(rec: Recommendation): boolean {
-  if (rec.score < 40) return true;
-  if (rec.ratingCount !== null && rec.ratingCount < 50) return true;
-  return false;
+  const g = normalize(genre);
+  return rec.genres.some((rg) => {
+    const rgNorm = normalize(rg);
+    return rgNorm.includes(g) || g.includes(rgNorm);
+  });
 }
 
 function getTopGenres(recommendations: Recommendation[], limit = 4): string[] {
@@ -60,7 +60,7 @@ export function groupRecommendations(
   const genreCandidates = [
     ...quizGenres,
     ...getTopGenres(recommendations).filter(
-      (g) => !quizGenres.some((qg) => qg.toLowerCase() === g.toLowerCase()),
+      (g) => !quizGenres.some((qg) => normalize(qg) === normalize(g)),
     ),
   ];
 
@@ -101,7 +101,7 @@ export function groupRecommendations(
   }
 
   const deepCuts = recommendations
-    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCutCandidate(r))
+    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCut(r))
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { formatCredits } from "@/lib/commerce/pricing";
+import { reservationCapForRelease } from "@/lib/commerce/reservations";
 import { Loader2, ShoppingBag, Users } from "lucide-react";
 
 export function ReserveWithCreditsButton({
@@ -24,7 +25,8 @@ export function ReserveWithCreditsButton({
   creditCost: number;
   numForSale: number;
   /** How many other collectors have already reserved a concierge spot for
-   * this release — a social scarcity signal, not a real inventory cap. */
+   * this release. Compared against `reservationCapForRelease(numForSale)` —
+   * a real, enforced cap, not just a display count. */
   reservationCount?: number;
   compact?: boolean;
 }) {
@@ -33,12 +35,16 @@ export function ReserveWithCreditsButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [full, setFull] = useState(
+    reservationCount >= reservationCapForRelease(numForSale),
+  );
 
   if (numForSale === 0) {
     return null;
   }
 
   function startReserve() {
+    if (full) return;
     if (!session) {
       router.push("/credits");
       return;
@@ -69,6 +75,10 @@ export function ReserveWithCreditsButton({
         return;
       }
 
+      if (res.status === 409) {
+        setFull(true);
+      }
+
       if (!res.ok) {
         throw new Error(data.error ?? "Could not reserve record");
       }
@@ -90,7 +100,7 @@ export function ReserveWithCreditsButton({
           variant="outline"
           size="sm"
           onClick={startReserve}
-          disabled={loading}
+          disabled={loading || full}
           className="gap-1.5"
         >
           {loading ? (
@@ -98,7 +108,7 @@ export function ReserveWithCreditsButton({
           ) : (
             <ShoppingBag className="h-4 w-4" />
           )}
-          {formatCredits(creditCost)}
+          {full ? "Full" : formatCredits(creditCost)}
         </Button>
         <Modal
           open={confirmOpen}
@@ -147,13 +157,18 @@ export function ReserveWithCreditsButton({
 
   return (
     <>
-      <Button variant="outline" onClick={startReserve} disabled={loading} className="gap-2">
+      <Button
+        variant="outline"
+        onClick={startReserve}
+        disabled={loading || full}
+        className="gap-2"
+      >
         {loading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <ShoppingBag className="h-4 w-4" />
         )}
-        Reserve for {formatCredits(creditCost)}
+        {full ? "Fully reserved" : `Reserve for ${formatCredits(creditCost)}`}
       </Button>
       {error && <p className="basis-full text-xs text-error">{error}</p>}
 
@@ -163,6 +178,12 @@ export function ReserveWithCreditsButton({
         title="Confirm reservation"
       >
         <div className="space-y-4">
+          {reservationCount > 0 && (
+            <Badge variant="warning" className="gap-1">
+              <Users className="h-3 w-3" />
+              {reservationCount} collector{reservationCount === 1 ? "" : "s"} already reserved a spot
+            </Badge>
+          )}
           <p className="text-sm text-muted">
             Spend <span className="font-semibold text-accent">{formatCredits(creditCost)}</span>{" "}
             to hold a concierge queue spot for{" "}

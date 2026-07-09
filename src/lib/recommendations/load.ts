@@ -8,6 +8,7 @@ import {
   getWishlist,
   getQuizResponses,
   getPriceHistoryStatsForReleases,
+  logEvent,
 } from "@/lib/db/queries";
 import { getTasteProfile } from "@/lib/taste-profile-store";
 import { fetchDiscoveryAlbums } from "@/lib/spotify/client";
@@ -17,6 +18,7 @@ import {
   getQuizOnlyRecommendations,
   mapQuizGenresToSpotify,
   collectSimilarArtistsWithMatch,
+  hasSpotifyReason,
 } from "@/lib/recommendations/engine";
 import {
   artistsFromIds,
@@ -85,6 +87,7 @@ export async function loadRecommendations(
         .map((f) => f.discogsReleaseId),
     );
     let recommendations: Recommendation[];
+    let source: "spotify" | "quiz-only" = "quiz-only";
 
     if (session?.error === "RefreshAccessTokenError") {
       degraded.push(
@@ -106,12 +109,17 @@ export async function loadRecommendations(
           Date.now() - snapshot.fetchedAt.getTime() > SNAPSHOT_TTL_MS;
 
         if (snapshotStale) {
+          const syncStart = Date.now();
           const synced = await syncSpotifyListening(userId, session.accessToken);
           snapshot = {
             ...synced,
             tasteVector: synced.tasteVector,
           };
           topGenres = synced.topGenres;
+          await logEvent(userId, "spotify_sync_completed", {
+            durationMs: Date.now() - syncStart,
+            artistCount: synced.topArtists.medium.length,
+          });
         }
 
         const tasteVector = snapshot?.tasteVector ?? null;
@@ -154,10 +162,11 @@ export async function loadRecommendations(
             trendingArtists,
             coreArtists,
           },
-          30,
+          40,
         );
 
         if (candidates.length > 0) {
+          source = "spotify";
           recommendations = await scoreCandidates(
             candidates,
             profile,
@@ -172,6 +181,7 @@ export async function loadRecommendations(
               similarArtists,
               quizAlbumPreferences: quizResponses?.albumPreferences ?? [],
               quizSubGenres: Object.values(quizResponses?.subGenres ?? {}).flat(),
+              quizRecognizedArtists: quizResponses?.recognizedArtists,
             },
           );
         } else {
@@ -181,14 +191,29 @@ export async function loadRecommendations(
               "No Spotify-based candidates found — showing quiz-based picks instead.",
             ),
           );
-          recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
+          recommendations = await getQuizOnlyRecommendations(
+            profile,
+            feedback,
+            wishlist,
+            quizResponses?.recognizedArtists,
+          );
         }
       } catch (error) {
         degraded.push(toSourceError("spotify", error));
-        recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
+        recommendations = await getQuizOnlyRecommendations(
+          profile,
+          feedback,
+          wishlist,
+          quizResponses?.recognizedArtists,
+        );
       }
     } else {
-      recommendations = await getQuizOnlyRecommendations(profile, feedback, wishlist);
+      recommendations = await getQuizOnlyRecommendations(
+        profile,
+        feedback,
+        wishlist,
+        quizResponses?.recognizedArtists,
+      );
     }
 
     if (excludedIds.size > 0) {
@@ -228,6 +253,11 @@ export async function loadRecommendations(
         fairValue: fairValueByRelease.get(r.discogsReleaseId) ?? false,
       }));
       await cacheRecommendations(userId, recommendations);
+      await logEvent(userId, "recommendations_generated", {
+        source,
+        count: recommendations.length,
+        withSpotifyReason: recommendations.filter((r) => hasSpotifyReason(r.reasons)).length,
+      });
     } else {
       degraded.push(
         toSourceError(

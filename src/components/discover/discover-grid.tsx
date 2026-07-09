@@ -7,7 +7,13 @@ import { staggerGrid } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { Recommendation } from "@/lib/types";
 
-export function DiscoverGrid({ items }: { items: Recommendation[] }) {
+export function DiscoverGrid({
+  items,
+  onItemClick,
+}: {
+  items: Recommendation[];
+  onItemClick?: (rec: Recommendation) => void;
+}) {
   if (items.length === 0) return null;
 
   return (
@@ -20,7 +26,7 @@ export function DiscoverGrid({ items }: { items: Recommendation[] }) {
     >
       {items.map((rec) => (
         <StaggerItem key={rec.discogsReleaseId}>
-          <PosterCard rec={rec} className="w-full" />
+          <PosterCard rec={rec} className="w-full" onNavigate={onItemClick} />
         </StaggerItem>
       ))}
     </StaggerContainer>

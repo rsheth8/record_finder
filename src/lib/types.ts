@@ -44,12 +44,15 @@ export type QuizGenre = (typeof QUIZ_GENRES)[number];
 export type QuizDecade = (typeof QUIZ_DECADES)[number];
 export type QuizMood = (typeof QUIZ_MOODS)[number];
 export type AlbumPreference = "singles" | "balanced" | "full_albums";
+/** Original pressings vs. reissues/represses — "either" means no preference. */
+export type FormatPreference = "originals" | "either" | "reissues";
 
 export interface TasteProfileData {
   genres: QuizGenre[];
   decades: QuizDecade[];
   moods: QuizMood[];
   albumPreference: AlbumPreference;
+  formatPreference: FormatPreference;
   deepCutLevel: number;
   completedAt: Date | null;
 }
@@ -126,6 +129,14 @@ export interface QuizAlbumPreference {
 /** Sub-genre selections keyed by parent quiz genre. */
 export type QuizSubGenres = Partial<Record<QuizGenre, string[]>>;
 
+/** Artist recognition grid responses — "own on vinyl" / "seen live" are
+ * strong, user-declared artist affinity signals distinct from Spotify
+ * listening data or the genre/mood/decade quiz answers. */
+export interface QuizRecognizedArtists {
+  owned: string[];
+  seenLive: string[];
+}
+
 export interface RecommendationMarketplace {
   lowestPrice: number | null;
   currency: string;
@@ -150,6 +161,12 @@ export interface Recommendation {
   spotifyAlbumId: string | null;
   spotifyUrl: string | null;
   score: number;
+  /** Raw score delta from quiz-only signals (decade, quiz-genre, sub-genre,
+   * mood, format, deep-cut appetite, album-battle preference), kept separate
+   * from `score` so `finalizeScores` can weight quiz fit as its own
+   * guaranteed component instead of it being diluted inside one combined
+   * relevance sum dominated by listening-history signals. */
+  quizScore?: number;
   reasons: string[];
   marketplace?: RecommendationMarketplace;
   /** Top-quartile demand (want/have ratio) at bottom-quartile price, relative

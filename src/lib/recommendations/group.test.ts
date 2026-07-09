@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { groupRecommendations } from "@/lib/recommendations/group";
-import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import type { QuizGenre, Recommendation } from "@/lib/types";
 
 let idCounter = 1;
 function rec(overrides: Partial<Recommendation>): Recommendation {
@@ -53,35 +53,50 @@ describe("groupRecommendations", () => {
     expect(hipHopRows[0].items).toHaveLength(5);
   });
 
-  it("groups remaining items by decade after genre rows are carved out", () => {
+  it("lets a top-picks item also appear in its genre row instead of starving it", () => {
+    // With only ~16 total recs, a strict "each rec belongs to exactly one
+    // row" rule starved the genre row down to nothing once top-picks claimed
+    // the 12 highest scorers — the real bug this test guards against. Rows
+    // are highlight reels over a shared pool, not exclusive claims on it.
     const input = [
       ...Array.from({ length: 12 }, (_, i) => rec({ score: 200 - i, genres: ["Indie"] })),
-      ...Array.from({ length: 4 }, (_, i) => rec({ score: 50 - i, genres: [], year: 1975 })),
+      ...Array.from({ length: 4 }, (_, i) => rec({ score: 50 - i, genres: ["Indie"] })),
     ];
-    const rows = groupRecommendations(input, [], ["1970s"] satisfies QuizDecade[]);
-    const decadeRow = rows.find((r) => r.id === "decade-1970s");
-    expect(decadeRow?.items).toHaveLength(4);
+    const rows = groupRecommendations(input, ["Indie"] satisfies QuizGenre[]);
+    const topPicks = rows.find((r) => r.id === "top-picks")!;
+    const genreRow = rows.find((r) => r.id === "genre-Indie")!;
+
+    expect(genreRow.items).toHaveLength(12);
+    const overlap = topPicks.items.filter((r) =>
+      genreRow.items.some((g) => g.discogsReleaseId === r.discogsReleaseId),
+    );
+    expect(overlap.length).toBeGreaterThan(0);
   });
 
-  it("does not assign the same recommendation to two rows", () => {
+  it("caps scored genre rows at two, beyond quiz genres present in the batch", () => {
     const input = [
-      ...Array.from({ length: 12 }, (_, i) => rec({ score: 200 - i, genres: ["Indie"] })),
-      ...Array.from({ length: 4 }, (_, i) =>
-        rec({ score: 50 - i, genres: ["Indie"], year: 1975 }),
-      ),
+      ...Array.from({ length: 4 }, (_, i) => rec({ score: 100 - i, genres: ["Rock"] })),
+      ...Array.from({ length: 4 }, (_, i) => rec({ score: 90 - i, genres: ["Jazz"] })),
+      ...Array.from({ length: 4 }, (_, i) => rec({ score: 80 - i, genres: ["Funk"] })),
     ];
     const rows = groupRecommendations(
       input,
-      ["Indie"] satisfies QuizGenre[],
-      ["1970s"] satisfies QuizDecade[],
+      ["Rock", "Jazz", "Funk"] satisfies QuizGenre[],
     );
-    const seen = new Set<number>();
-    for (const row of rows) {
-      for (const item of row.items) {
-        expect(seen.has(item.discogsReleaseId)).toBe(false);
-        seen.add(item.discogsReleaseId);
-      }
-    }
+    const genreRows = rows.filter((r) => r.id.startsWith("genre-"));
+    expect(genreRows).toHaveLength(2);
+  });
+
+  it("adds a deep-cuts row when enough low-want/low-rating items exist", () => {
+    const input = [
+      ...Array.from({ length: 12 }, (_, i) => rec({ score: 200 - i, genres: ["Indie"] })),
+      ...Array.from({ length: 4 }, (_, i) =>
+        rec({ score: 50 - i, genres: ["Indie"], wantCount: 10 }),
+      ),
+    ];
+    const rows = groupRecommendations(input, ["Indie"] satisfies QuizGenre[]);
+    const deepCuts = rows.find((r) => r.id === "deep-cuts");
+    expect(deepCuts?.items).toHaveLength(4);
   });
 
   it("produces just a top-picks row for a small batch (nothing else clears MIN_ROW_ITEMS)", () => {

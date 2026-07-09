@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import AutoScroll from "embla-carousel-auto-scroll";
 import type { EmblaOptionsType, EmblaPluginType } from "embla-carousel";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { Recommendation } from "@/lib/types";
 import { PosterCard } from "@/components/discover/poster-card";
 import { BLEED_PL, BLEED_PR } from "@/lib/layout";
@@ -32,6 +32,9 @@ export function CarouselRow({
   featured = false,
   rowIndex = 0,
   autoScroll = false,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
 }: {
   title: string;
   items: Recommendation[];
@@ -44,6 +47,12 @@ export function CarouselRow({
    * picks") — deliberately NOT used on the Discover browse rows, which would
    * be motion soup with many drifting at once. */
   autoScroll?: boolean;
+  /** Called at most once per scroll-to-end — fetch and append the row's next
+   * page. Omit for rows bounded to a fixed batch (e.g. scored rows), where
+   * there's nothing more to fetch. */
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }) {
   const reducedMotion = useReducedMotion();
   const enableAutoScroll = autoScroll && !reducedMotion;
@@ -92,20 +101,44 @@ export function CarouselRow({
     setCanScrollNext(emblaApi.canScrollNext());
   }, [emblaApi]);
 
+  // Refs (not state/deps) so this doesn't need to re-subscribe every time
+  // hasMore/loadingMore change — the embla listener below is registered once
+  // per emblaApi instance and just reads the latest values off these.
+  const onLoadMoreRef = useRef(onLoadMore);
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+    hasMoreRef.current = hasMore;
+    loadingMoreRef.current = loadingMore;
+  });
+
+  const maybeLoadMore = useCallback(() => {
+    if (!emblaApi) return;
+    if (!emblaApi.canScrollNext() && hasMoreRef.current && !loadingMoreRef.current) {
+      onLoadMoreRef.current?.();
+    }
+  }, [emblaApi]);
+
   useEffect(() => {
     if (!emblaApi) return;
 
     queueMicrotask(updateScrollButtons);
+    queueMicrotask(maybeLoadMore);
     emblaApi.on("select", updateScrollButtons);
     emblaApi.on("reInit", updateScrollButtons);
     emblaApi.on("resize", updateScrollButtons);
+    emblaApi.on("select", maybeLoadMore);
+    emblaApi.on("reInit", maybeLoadMore);
 
     return () => {
       emblaApi.off("select", updateScrollButtons);
       emblaApi.off("reInit", updateScrollButtons);
+      emblaApi.off("select", maybeLoadMore);
+      emblaApi.off("reInit", maybeLoadMore);
       emblaApi.off("resize", updateScrollButtons);
     };
-  }, [emblaApi, updateScrollButtons]);
+  }, [emblaApi, updateScrollButtons, maybeLoadMore]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -255,6 +288,16 @@ export function CarouselRow({
                 />
               </div>
             ))}
+            {loadingMore && (
+              <div
+                className={cn(
+                  "flex aspect-[2/3] shrink-0 grow-0 items-center justify-center pr-3 sm:pr-4",
+                  cardWidth,
+                )}
+              >
+                <Loader2 className="h-5 w-5 animate-spin text-muted" />
+              </div>
+            )}
           </div>
         </div>
       </div>

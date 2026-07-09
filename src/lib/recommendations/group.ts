@@ -1,4 +1,4 @@
-import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
+import type { QuizGenre, Recommendation } from "@/lib/types";
 import { isDeepCut } from "@/lib/recommendations/filter";
 import { normalize } from "@/lib/recommendations/match";
 
@@ -38,14 +38,28 @@ function getTopGenres(recommendations: Recommendation[], limit = 4): string[] {
     .map(([genre]) => genre);
 }
 
+/** How many genres (beyond whatever quiz genres the batch actually contains)
+ * get their own scored row. Kept small on purpose — this batch is only ~36-40
+ * items total, and breadth beyond this comes from the live catalog-browse row
+ * queue (`browse-rows.ts`), not from subdividing this small scored batch
+ * further. */
+const MAX_SCORED_GENRE_ROWS = 2;
+
+/** Rows built from the scored/personalized batch. None of these are mutually
+ * exclusive with each other or with "Top picks" — each is a highlight reel
+ * over the same shared pool, not a claim on it. Earlier versions had each row
+ * remove its items from a shared pool, which meant "Top picks" (12 items) and
+ * the first genre row could exhaust a ~36-40 item batch, starving every row
+ * after it below MIN_ROW_ITEMS — the page would render one full row plus a
+ * couple of nearly-empty ones and stop. Netflix rows overlap constantly (the
+ * same title appears in "Top picks", its genre row, etc.); this does the
+ * same, and relies on the browse-row queue for genuine breadth instead. */
 export function groupRecommendations(
   recommendations: Recommendation[],
   quizGenres: QuizGenre[] = [],
-  quizDecades: QuizDecade[] = [],
 ): RecommendationRow[] {
   if (recommendations.length === 0) return [];
 
-  const used = new Set<number>();
   const rows: RecommendationRow[] = [];
 
   const topPicks = [...recommendations]
@@ -53,7 +67,6 @@ export function groupRecommendations(
     .slice(0, 12);
 
   if (topPicks.length > 0) {
-    topPicks.forEach((r) => used.add(r.discogsReleaseId));
     rows.push({ id: "top-picks", title: "Top picks for you", items: topPicks });
   }
 
@@ -64,58 +77,24 @@ export function groupRecommendations(
     ),
   ];
 
-  for (const genre of genreCandidates.slice(0, 5)) {
+  for (const genre of genreCandidates.slice(0, MAX_SCORED_GENRE_ROWS)) {
     const items = recommendations
-      .filter((r) => !used.has(r.discogsReleaseId) && matchesGenre(r, genre))
-      .sort((a, b) => b.score - a.score);
+      .filter((r) => matchesGenre(r, genre))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12);
 
     if (items.length >= MIN_ROW_ITEMS) {
-      items.slice(0, 12).forEach((r) => used.add(r.discogsReleaseId));
-      rows.push({
-        id: `genre-${genre}`,
-        title: genre,
-        items: items.slice(0, 12),
-      });
-    }
-  }
-
-  for (const decade of quizDecades.slice(0, 4)) {
-    const decadeNum = parseInt(decade.replace("s", ""), 10);
-    const items = recommendations
-      .filter((r) => {
-        if (used.has(r.discogsReleaseId)) return false;
-        const y = r.year;
-        if (!y) return false;
-        return Math.floor(y / 10) * 10 === decadeNum;
-      })
-      .sort((a, b) => b.score - a.score);
-
-    if (items.length >= MIN_ROW_ITEMS) {
-      items.slice(0, 12).forEach((r) => used.add(r.discogsReleaseId));
-      rows.push({
-        id: `decade-${decade}`,
-        title: `${decade} essentials`,
-        items: items.slice(0, 12),
-      });
+      rows.push({ id: `genre-${genre}`, title: genre, items });
     }
   }
 
   const deepCuts = recommendations
-    .filter((r) => !used.has(r.discogsReleaseId) && isDeepCut(r))
+    .filter((r) => isDeepCut(r))
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 
   if (deepCuts.length >= MIN_ROW_ITEMS) {
-    deepCuts.forEach((r) => used.add(r.discogsReleaseId));
     rows.push({ id: "deep-cuts", title: "Deep cuts", items: deepCuts });
-  }
-
-  const remaining = recommendations
-    .filter((r) => !used.has(r.discogsReleaseId))
-    .sort((a, b) => b.score - a.score);
-
-  if (remaining.length > 0) {
-    rows.push({ id: "more", title: "More to explore", items: remaining });
   }
 
   if (rows.length === 0) {

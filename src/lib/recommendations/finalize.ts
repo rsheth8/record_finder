@@ -1,18 +1,28 @@
 import type { Recommendation } from "@/lib/types";
 
 export interface FinalizeWeights {
-  /** Taste match — how well the pick fits the user's genres/artists/era. */
+  /** Taste match — how well the pick fits Spotify listening history, feedback,
+   * and community rating (everything in `score` except quiz signals). */
   relevance: number;
+  /** Quiz-answer fit — decade, quiz-genre, sub-genre, mood, format, deep-cut
+   * appetite, and album-battle preference. Carved out of `relevance` into its
+   * own weighted, batch-normalized component so a Spotify-connected user's
+   * quiz answers have a guaranteed, visible influence on the final score,
+   * instead of being diluted inside one combined raw-score sum where
+   * listening-history signals have much higher variance. */
+  quizFit: number;
   /** Community rating quality (Bayesian-shrunk). */
   rating: number;
   /** How sought-after the pressing is (Discogs want count). */
   desirability: number;
 }
 
-/** Taste match still leads, but community rating and desirability now shape the
- * ranking so "best match" reflects quality, not just the raw match sum. */
+/** Taste match still leads, but quiz fit, community rating, and desirability
+ * now shape the ranking so "best match" reflects quality and the user's own
+ * stated preferences, not just the raw listening-history match sum. */
 export const DEFAULT_FINALIZE_WEIGHTS: FinalizeWeights = {
-  relevance: 0.6,
+  relevance: 0.4,
+  quizFit: 0.2,
   rating: 0.3,
   desirability: 0.1,
 };
@@ -40,6 +50,18 @@ export function ratingScore(rec: Recommendation): number {
  * comparable. A flat batch maps to a neutral 0.5. */
 function relevanceScores(recs: Recommendation[]): number[] {
   const raws = recs.map((r) => r.score);
+  const min = Math.min(...raws);
+  const max = Math.max(...raws);
+  const span = max - min;
+  return raws.map((s) => (span > 0 ? (s - min) / span : 0.5));
+}
+
+/** Normalizes `quizScore` (pure quiz-answer signals, see the field doc on
+ * `Recommendation`) into 0–1 within the batch, same min-max treatment as
+ * `relevanceScores`. A candidate with no quiz signal at all (undefined) is
+ * treated as 0. A flat batch maps to a neutral 0.5. */
+function quizFitScores(recs: Recommendation[]): number[] {
+  const raws = recs.map((r) => r.quizScore ?? 0);
   const min = Math.min(...raws);
   const max = Math.max(...raws);
   const span = max - min;
@@ -82,12 +104,15 @@ export function finalizeScores(
   if (recs.length === 0) return recs;
 
   const relevance = relevanceScores(recs);
+  const quizFit = quizFitScores(recs);
   const desirability = desirabilityScores(recs, deepCutLevel);
-  const total = weights.relevance + weights.rating + weights.desirability;
+  const total =
+    weights.relevance + weights.quizFit + weights.rating + weights.desirability;
 
   return recs.map((rec, i) => {
     const blended =
       (weights.relevance * relevance[i] +
+        weights.quizFit * quizFit[i] +
         weights.rating * ratingScore(rec) +
         weights.desirability * desirability[i]) /
       total;

@@ -7,6 +7,7 @@ export const tasteProfile = sqliteTable("taste_profile", {
   decades: text("decades").notNull().default("[]"),
   moods: text("moods").notNull().default("[]"),
   albumPreference: text("album_preference").notNull().default("balanced"),
+  formatPreference: text("format_preference").notNull().default("either"),
   deepCutLevel: integer("deep_cut_level").notNull().default(50),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -36,6 +37,7 @@ export const quizResponses = sqliteTable("quiz_responses", {
   userId: text("user_id").notNull(),
   albumPreferences: text("album_preferences").notNull().default("[]"),
   subGenres: text("sub_genres").notNull().default("{}"),
+  recognizedArtists: text("recognized_artists").notNull().default('{"owned":[],"seenLive":[]}'),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({
   userIdx: uniqueIndex("quiz_responses_user_idx").on(t.userId),
@@ -128,3 +130,54 @@ export const orders = sqliteTable("orders", {
   discogsUrl: text("discogs_url").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+// Local/independent record stores that have opted their Shopify storefront
+// into the "where to buy" offer panel — the seed of the local-shop flywheel.
+// No public self-serve claim/verification flow yet (see offers/shopify.ts);
+// rows are added by hand for now via addLocalShop().
+export const localShops = sqliteTable("local_shops", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  // Storefront domain that exposes Shopify's public /products.json (a
+  // *.myshopify.com domain or a custom domain still proxying to Shopify).
+  domain: text("domain").notNull(),
+  city: text("city"),
+  region: text("region"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  domainIdx: uniqueIndex("local_shops_domain_idx").on(t.domain),
+}));
+
+// Shared, DB-backed cache for the "where to buy" offer panel (mirrors
+// recommendation_cache) — replaces the earlier in-memory Map, which was lost
+// on every serverless cold start and not shared across instances. One row per
+// release; `offers`/`sources` are JSON (see offers/orchestrator.ts's
+// OfferResult).
+export const offerCache = sqliteTable("offer_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  offers: text("offers").notNull().default("[]"),
+  sources: text("sources").notNull().default("[]"),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  releaseIdx: uniqueIndex("offer_cache_release_idx").on(t.discogsReleaseId),
+}));
+
+// Raw success-metrics event log (recommendation generation, feedback, sync,
+// search, reservations, email clicks) — see lib/db/queries.ts's `logEvent()`
+// and lib/analytics/metrics.ts for the pure aggregation functions that turn
+// these rows into the success metrics from the roadmap. Intentionally a flat
+// event log rather than per-metric counter tables, since which metrics matter
+// is still evolving.
+export const analyticsEvents = sqliteTable("analytics_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  type: text("type").notNull(),
+  metadata: text("metadata").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  typeIdx: index("analytics_events_type_idx").on(t.type),
+  userIdx: index("analytics_events_user_idx").on(t.userId),
+}));

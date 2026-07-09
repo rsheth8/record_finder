@@ -10,6 +10,11 @@ const albumPreferenceSchema = z.object({
   loserArtist: z.string().optional(),
 });
 
+const recognizedArtistsSchema = z.object({
+  owned: z.array(z.string()).default([]),
+  seenLive: z.array(z.string()).default([]),
+});
+
 export const saveQuizSchema = z.object({
   genres: z.array(z.enum(QUIZ_GENRES)).max(6).default([]),
   decades: z.array(z.enum(QUIZ_DECADES)).max(4).default([]),
@@ -17,8 +22,10 @@ export const saveQuizSchema = z.object({
   albumPreference: z
     .enum(["singles", "balanced", "full_albums"])
     .default("balanced"),
+  formatPreference: z.enum(["originals", "either", "reissues"]).default("either"),
   deepCutLevel: z.number().min(0).max(100).default(50),
   subGenres: z.record(z.string(), z.array(z.string())).default({}),
   albumPreferences: z.array(albumPreferenceSchema).default([]),
+  recognizedArtists: recognizedArtistsSchema.default({ owned: [], seenLive: [] }),
   completed: z.boolean().default(false),
 });

@@ -21,6 +21,11 @@ import {
   setWishlistPriceAtAdd,
   getWishlistAlertCandidates,
   markWishlistAlerted,
+  addLocalShop,
+  listActiveLocalShops,
+  logEvent,
+  getAnalyticsEvents,
+  getFeedbackLikeRateBySource,
 } from "@/lib/db/queries";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
@@ -33,6 +38,12 @@ function uid(prefix = "u") {
 let releaseCounter = 0;
 function rid() {
   return Date.now() * 1000 + releaseCounter++;
+}
+
+// local_shops.domain is unique, so each test needs its own.
+let domainCounter = 0;
+function testDomain() {
+  return `test-shop-${Date.now()}-${domainCounter++}.example.com`;
 }
 
 // Note: the throwaway DB file (./data/vitest-test.db) persists across runs.
@@ -83,6 +94,7 @@ describe("mergeGuestData", () => {
       decades: ["1960s"],
       moods: ["Chill"],
       albumPreference: "full_albums",
+      formatPreference: "either",
       deepCutLevel: 80,
       completed: true,
     });
@@ -103,6 +115,7 @@ describe("mergeGuestData", () => {
       decades: ["1970s"],
       moods: [],
       albumPreference: "balanced",
+      formatPreference: "either",
       deepCutLevel: 50,
       completed: true,
     });
@@ -111,6 +124,7 @@ describe("mergeGuestData", () => {
       decades: ["2010s"],
       moods: [],
       albumPreference: "singles",
+      formatPreference: "either",
       deepCutLevel: 20,
       completed: true,
     });
@@ -312,5 +326,63 @@ describe("price history", () => {
       await markWishlistAlerted(item.id, 22);
       expect((await getWishlist(user))[0].lastAlertedPrice).toBe(22);
     });
+  });
+});
+
+describe("local shops", () => {
+  it("registers a shop and lists it as active", async () => {
+    const domain = testDomain();
+    await addLocalShop({ name: "Test Vinyl Co", domain, city: "Austin", region: "TX" });
+    const shops = await listActiveLocalShops();
+    expect(shops.some((s) => s.domain === domain && s.name === "Test Vinyl Co")).toBe(true);
+  });
+
+  it("is idempotent — registering the same domain twice doesn't duplicate or error", async () => {
+    const domain = testDomain();
+    await addLocalShop({ name: "First Name", domain });
+    await addLocalShop({ name: "Second Name", domain });
+    const shops = await listActiveLocalShops();
+    const matches = shops.filter((s) => s.domain === domain);
+    expect(matches).toHaveLength(1);
+    // onConflictDoNothing means the *first* registration wins.
+    expect(matches[0].name).toBe("First Name");
+  });
+});
+
+describe("analytics events", () => {
+  it("logs an event and reads it back with parsed metadata", async () => {
+    const user = uid("analytics");
+    await logEvent(user, "feedback_given", { signal: "like", connected: true });
+    const events = await getAnalyticsEvents(["feedback_given"]);
+    const logged = events.find((e) => e.userId === user);
+    expect(logged?.metadata).toEqual({ signal: "like", connected: true });
+  });
+
+  it("filters by type when types are given, and returns everything otherwise", async () => {
+    const user = uid("analytics");
+    await logEvent(user, "search_performed", { resultCount: 5 });
+    await logEvent(user, "reservation_created", { discogsReleaseId: 1 });
+
+    const searchOnly = await getAnalyticsEvents(["search_performed"]);
+    expect(searchOnly.some((e) => e.userId === user && e.type === "reservation_created")).toBe(
+      false,
+    );
+
+    const all = await getAnalyticsEvents();
+    expect(all.some((e) => e.userId === user && e.type === "search_performed")).toBe(true);
+    expect(all.some((e) => e.userId === user && e.type === "reservation_created")).toBe(true);
+  });
+
+  it("feeds getFeedbackLikeRateBySource end-to-end through a real DB round-trip", async () => {
+    const connectedUser = uid("analytics-connected");
+    const quizUser = uid("analytics-quiz");
+    await logEvent(connectedUser, "feedback_given", { signal: "like", connected: true });
+    await logEvent(quizUser, "feedback_given", { signal: "dislike", connected: false });
+    const rate = await getFeedbackLikeRateBySource();
+    // Real DB has accumulated rows across tests, so assert bounds rather than
+    // an exact fraction — this proves the DB round-trip end-to-end without
+    // depending on test execution order.
+    expect(rate.spotifyConnected).toBeGreaterThan(0);
+    expect(rate.spotifyConnected).toBeLessThanOrEqual(1);
   });
 });

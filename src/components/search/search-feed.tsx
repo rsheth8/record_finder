@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Disc3, Search as SearchIcon } from "lucide-react";
+import { Disc3, Loader2, Search as SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DiscoverGrid } from "@/components/discover/discover-grid";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
+import {
+  SearchFilters,
+  DEFAULT_SEARCH_FILTERS,
+  type SearchFilterState,
+} from "@/components/search/search-filters";
 import { BLEED_MX, BLEED_PX, FULL_BLEED } from "@/lib/layout";
+import { useInView } from "@/hooks/use-in-view";
 import { cn } from "@/lib/utils";
 import type { Recommendation, SearchPagination } from "@/lib/types";
 
@@ -21,6 +27,29 @@ function IntroState() {
       description="Real Discogs pressings, priced and rated — no quiz or sign-in required."
     />
   );
+}
+
+/** Fire-and-forget click-through beacon for the search → click → reservation
+ * funnel — doesn't block or delay navigation, and a failure here is silently
+ * dropped (this is instrumentation, not app behavior). */
+function logSearchResultClick(rec: Recommendation) {
+  const body = JSON.stringify({
+    type: "search_result_click",
+    metadata: { discogsReleaseId: rec.discogsReleaseId },
+  });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(
+      "/api/analytics/event",
+      new Blob([body], { type: "application/json" }),
+    );
+    return;
+  }
+  fetch("/api/analytics/event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    keepalive: true,
+  }).catch(() => {});
 }
 
 function NoResultsState({ query }: { query: string }) {
@@ -45,38 +74,75 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   const [results, setResults] = useState<Recommendation[]>([]);
   const [pagination, setPagination] = useState<SearchPagination | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [filters, setFilters] = useState<SearchFilterState>(DEFAULT_SEARCH_FILTERS);
+  // Rapid filter changes (a few pill clicks in a row) each kick off a real
+  // Discogs-backed request; without this, an earlier, slower request could
+  // resolve after a later one and clobber the UI with stale results. Also
+  // covers a scroll-triggered "load more" being superseded by a new search.
+  const activeRequest = useRef<AbortController | null>(null);
 
-  async function runSearch(q: string, targetPage: number) {
+  async function runSearch(
+    q: string,
+    targetPage: number,
+    activeFilters: SearchFilterState,
+    { append = false }: { append?: boolean } = {},
+  ) {
     const trimmed = q.trim();
     if (!trimmed) return;
 
-    setLoading(true);
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setResults([]);
+      setPagination(null);
+    }
     setError(null);
     setHasSearched(true);
 
     try {
-      const res = await fetch(
-        `/api/discogs/search?q=${encodeURIComponent(trimmed)}&page=${targetPage}`,
-      );
+      const params = new URLSearchParams({ q: trimmed, page: String(targetPage) });
+      if (activeFilters.genre) params.set("genre", activeFilters.genre);
+      if (activeFilters.decade) params.set("decade", activeFilters.decade);
+      if (activeFilters.sort !== "relevance") params.set("sort", activeFilters.sort);
+
+      const res = await fetch(`/api/discogs/search?${params.toString()}`, {
+        signal: controller.signal,
+      });
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.error ?? "Search failed");
-        setResults([]);
-        setPagination(null);
+        if (!append) setPagination(null);
         return;
       }
 
-      setResults(data.results ?? []);
+      setResults((prev) => {
+        if (!append) return data.results ?? [];
+        const seen = new Set(prev.map((r) => r.discogsReleaseId));
+        const additions = ((data.results ?? []) as Recommendation[]).filter(
+          (r) => !seen.has(r.discogsReleaseId),
+        );
+        return [...prev, ...additions];
+      });
       setPagination(data.pagination ?? null);
-    } catch {
+      setPage(targetPage);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError("Something went wrong. Check your connection and try again.");
-      setResults([]);
-      setPagination(null);
+      if (!append) setPagination(null);
     } finally {
-      setLoading(false);
+      if (activeRequest.current === controller) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }
 
@@ -86,7 +152,7 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   useEffect(() => {
     if (initialQuery.trim() && !autoTriggered.current) {
       autoTriggered.current = true;
-      void runSearch(initialQuery, 1);
+      void runSearch(initialQuery, 1, DEFAULT_SEARCH_FILTERS);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -94,14 +160,33 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmittedQuery(query);
-    setPage(1);
-    void runSearch(query, 1);
+    void runSearch(query, 1, filters);
   }
 
-  function goToPage(next: number) {
-    setPage(next);
-    void runSearch(submittedQuery, next);
+  // Genre/decade/sort are real Discogs search params (see searchCatalog), so
+  // changing them re-runs the search against the whole catalog rather than
+  // filtering the current page — only meaningful once a query exists.
+  function handleFiltersChange(next: SearchFilterState) {
+    setFilters(next);
+    if (submittedQuery.trim()) {
+      void runSearch(submittedQuery, 1, next);
+    }
   }
+
+  function loadNextPage() {
+    if (loading || loadingMore) return;
+    if (!pagination || page >= pagination.pages) return;
+    void runSearch(submittedQuery, page + 1, filters, { append: true });
+  }
+
+  const hasMorePages = !!pagination && page < pagination.pages;
+  // Modest lookahead — see the matching note in DiscoverFeed on why a large
+  // rootMargin combined with resetKey re-checks can cascade multiple pages
+  // at once instead of pacing to the user's actual scroll position.
+  const sentinelRef = useInView<HTMLDivElement>(loadNextPage, {
+    rootMargin: "400px",
+    resetKey: page,
+  });
 
   return (
     <div className={cn(FULL_BLEED, "space-y-6")}>
@@ -121,6 +206,10 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
         </Button>
       </form>
 
+      <div className={BLEED_PX}>
+        <SearchFilters filters={filters} onChange={handleFiltersChange} />
+      </div>
+
       {error && (
         <div className={cn(BLEED_MX, "rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error")}>
           {error}
@@ -139,36 +228,24 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
         </Card>
       ) : (
         <div className="space-y-4 pb-8">
-          <DiscoverGrid key={`${submittedQuery}-${page}`} items={results} />
-          {pagination && pagination.pages > 1 && (
-            <div className={cn(BLEED_PX, "flex items-center justify-center gap-3")}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(page - 1)}
-                disabled={page <= 1}
-                className="gap-1"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Prev
-              </Button>
-              <span className="text-sm text-muted">
-                Page {pagination.page} of {pagination.pages}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(page + 1)}
-                disabled={page >= pagination.pages}
-                className="gap-1"
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+          <DiscoverGrid
+            key={`${submittedQuery}-${filters.genre}-${filters.decade}-${filters.sort}`}
+            items={results}
+            onItemClick={logSearchResultClick}
+          />
+          {loadingMore && (
+            <div className={cn(BLEED_PX, "flex items-center justify-center py-4")}>
+              <Loader2 className="h-5 w-5 animate-spin text-muted" />
             </div>
           )}
+          {hasMorePages && !loadingMore ? (
+            <div ref={sentinelRef} className="h-1" />
+          ) : pagination ? (
+            <p className={cn(BLEED_PX, "py-4 text-center text-sm text-muted")}>
+              You&rsquo;ve reached the end — {pagination.items.toLocaleString()} results for &ldquo;
+              {submittedQuery}&rdquo;
+            </p>
+          ) : null}
         </div>
       )}
     </div>

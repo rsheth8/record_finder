@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CarouselRow } from "@/components/discover/carousel-row";
+import { BrowseRow } from "@/components/discover/browse-row";
 import { DiscoverFilters } from "@/components/discover/discover-filters";
 import { DiscoverGrid } from "@/components/discover/discover-grid";
 import { Card } from "@/components/ui/card";
@@ -15,13 +16,19 @@ import {
   hasContentFilters,
 } from "@/lib/recommendations/filter";
 import { groupRecommendations } from "@/lib/recommendations/group";
+import { buildBrowseRowQueue } from "@/lib/recommendations/browse-rows";
 import type { QuizDecade, QuizGenre, Recommendation } from "@/lib/types";
 import { SOURCE_LABELS, type SourceError } from "@/lib/errors";
 import { BLEED_MX, BLEED_PX, FULL_BLEED } from "@/lib/layout";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 import { useNowMinute } from "@/hooks/use-now-minute";
+import { useInView } from "@/hooks/use-in-view";
 import { Disc3, LayoutGrid, RefreshCw, Rows3, ShoppingBag, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/** How many live-catalog browse rows to have mounted at once, at minimum —
+ * grows as the user scrolls into the sentinel at the bottom of the row list. */
+const INITIAL_BROWSE_ROWS = 2;
 
 type ViewMode = "rows" | "grid";
 
@@ -102,11 +109,48 @@ export function DiscoverFeed({
   );
 
   const contentFiltering = hasContentFilters(filters);
+  const showRows = !contentFiltering && viewMode === "rows";
 
   const rows = useMemo(() => {
-    if (contentFiltering || viewMode === "grid") return [];
-    return groupRecommendations(filtered, quizGenres, quizDecades);
-  }, [filtered, quizGenres, quizDecades, contentFiltering, viewMode]);
+    if (!showRows) return [];
+    return groupRecommendations(filtered, quizGenres);
+  }, [filtered, quizGenres, showRows]);
+
+  // Genres already given a scored row above shouldn't also get a duplicate
+  // live-catalog browse row right after it.
+  const usedGenres = useMemo(
+    () => rows.filter((r) => r.id.startsWith("genre-")).map((r) => r.title),
+    [rows],
+  );
+
+  const browseRowQueue = useMemo(() => {
+    if (!showRows) return [];
+    return buildBrowseRowQueue(quizGenres, quizDecades, usedGenres);
+  }, [showRows, quizGenres, quizDecades, usedGenres]);
+
+  const [visibleBrowseCount, setVisibleBrowseCount] = useState(INITIAL_BROWSE_ROWS);
+  // Reset when the queue itself changes (e.g. quiz retaken) rather than
+  // carrying over a stale scroll position into a different queue. Adjusting
+  // state directly during render (React's documented pattern for "reset
+  // state when a prop/derived value changes") instead of an effect, which
+  // would cause an extra commit.
+  const [queueForReset, setQueueForReset] = useState(browseRowQueue);
+  if (queueForReset !== browseRowQueue) {
+    setQueueForReset(browseRowQueue);
+    setVisibleBrowseCount(INITIAL_BROWSE_ROWS);
+  }
+
+  // Modest lookahead, not a large one: the resetKey mechanism above re-checks
+  // intersection after every mount, so a large rootMargin relative to a
+  // row's height (~300px) cascades through many rows at once — even with no
+  // further scrolling — instead of pacing to roughly one row ahead of the
+  // user's actual scroll position.
+  const sentinelRef = useInView<HTMLDivElement>(
+    () => {
+      setVisibleBrowseCount((n) => Math.min(n + 1, browseRowQueue.length));
+    },
+    { rootMargin: "400px", resetKey: visibleBrowseCount },
+  );
 
   async function refresh() {
     setLoading(true);
@@ -299,6 +343,16 @@ export function DiscoverFeed({
               rowIndex={i + 1}
             />
           ))}
+          {browseRowQueue.slice(0, visibleBrowseCount).map((def, i) => (
+            <BrowseRow key={def.id} def={def} rowIndex={rows.length + i} />
+          ))}
+          {visibleBrowseCount < browseRowQueue.length ? (
+            <div ref={sentinelRef} className="h-1" />
+          ) : browseRowQueue.length > 0 ? (
+            <p className={cn(BLEED_PX, "py-4 text-center text-sm text-muted")}>
+              That&rsquo;s everything for now — refresh picks for a new set.
+            </p>
+          ) : null}
         </div>
       )}
     </div>

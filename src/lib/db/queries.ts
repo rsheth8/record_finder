@@ -10,10 +10,20 @@ import {
   orders,
   quizResponses,
   priceHistory,
+  localShops,
+  offerCache,
+  analyticsEvents,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
 import { normalizeRecommendations } from "@/lib/recommendations/normalize";
+import {
+  computeReasonCitationRate,
+  computeFeedbackLikeRate,
+  computeSyncToFirstRecommendation,
+  computeFunnel,
+  type AnalyticsEventRow,
+} from "@/lib/analytics/metrics";
 import type {
   TasteProfileData,
   SpotifyArtist,
@@ -33,6 +43,8 @@ import type {
   FeedbackSignal,
   QuizAlbumPreference,
   QuizSubGenres,
+  FormatPreference,
+  QuizRecognizedArtists,
 } from "@/lib/types";
 
 export async function getTasteProfileFromDb(
@@ -51,6 +63,7 @@ export async function getTasteProfileFromDb(
     decades: parseJson<QuizDecade[]>(row.decades, []),
     moods: parseJson<QuizMood[]>(row.moods, []),
     albumPreference: row.albumPreference as AlbumPreference,
+    formatPreference: row.formatPreference as FormatPreference,
     deepCutLevel: row.deepCutLevel,
     completedAt: row.completedAt,
   };
@@ -74,6 +87,7 @@ export async function saveTasteProfileToDb(
     decades: JSON.stringify(data.decades),
     moods: JSON.stringify(data.moods),
     albumPreference: data.albumPreference,
+    formatPreference: data.formatPreference,
     deepCutLevel: data.deepCutLevel,
     completedAt: data.completed ? now : existing?.completedAt ?? null,
     updatedAt: now,
@@ -217,9 +231,12 @@ function deriveTopAlbumsFromTracks(tracks: SpotifyTrack[]): SpotifyAlbum[] {
   return albums;
 }
 
+const EMPTY_RECOGNIZED_ARTISTS: QuizRecognizedArtists = { owned: [], seenLive: [] };
+
 export async function getQuizResponses(userId: string): Promise<{
   albumPreferences: QuizAlbumPreference[];
   subGenres: QuizSubGenres;
+  recognizedArtists: QuizRecognizedArtists;
 } | null> {
   await ensureDb();
   const row = await db
@@ -232,18 +249,27 @@ export async function getQuizResponses(userId: string): Promise<{
   return {
     albumPreferences: parseJson<QuizAlbumPreference[]>(row.albumPreferences, []),
     subGenres: parseJson<QuizSubGenres>(row.subGenres, {}),
+    recognizedArtists: parseJson<QuizRecognizedArtists>(
+      row.recognizedArtists,
+      EMPTY_RECOGNIZED_ARTISTS,
+    ),
   };
 }
 
 export async function saveQuizResponses(
   userId: string,
-  data: { albumPreferences: QuizAlbumPreference[]; subGenres: QuizSubGenres },
+  data: {
+    albumPreferences: QuizAlbumPreference[];
+    subGenres: QuizSubGenres;
+    recognizedArtists: QuizRecognizedArtists;
+  },
 ) {
   await ensureDb();
   const values = {
     userId,
     albumPreferences: JSON.stringify(data.albumPreferences),
     subGenres: JSON.stringify(data.subGenres),
+    recognizedArtists: JSON.stringify(data.recognizedArtists),
     updatedAt: new Date(),
   };
   await db
@@ -692,9 +718,10 @@ export async function getUserReservations(
   return rows as ReservationRecord[];
 }
 
-/** How many collectors have reserved a concierge queue spot for this release —
- * a social/gamification scarcity signal, not a real inventory count (there is
- * no cap; a reservation never blocks another). See `orders`' doc comment. */
+/** How many collectors have reserved a concierge queue spot for this release.
+ * Capped per `reservationCapForRelease()` (`lib/commerce/reservations.ts`) —
+ * a real, enforced limit as of the reservation-scarcity cap, not just a
+ * count. See `orders`' doc comment. */
 export async function getReservationCountForRelease(
   discogsReleaseId: number,
 ): Promise<number> {
@@ -876,4 +903,181 @@ export async function markWishlistAlerted(
     .update(wishlistItems)
     .set({ lastAlertedPrice: price })
     .where(eq(wishlistItems.id, wishlistItemId));
+}
+
+export interface LocalShop {
+  id: number;
+  name: string;
+  domain: string;
+  city: string | null;
+  region: string | null;
+}
+
+/** Active local shops whose Shopify storefront the offer orchestrator should
+ * search — see `src/lib/offers/shopify.ts`. No public claim/self-serve flow
+ * yet; rows are added by hand via `addLocalShop`. */
+export async function listActiveLocalShops(): Promise<LocalShop[]> {
+  await ensureDb();
+  return db
+    .select({
+      id: localShops.id,
+      name: localShops.name,
+      domain: localShops.domain,
+      city: localShops.city,
+      region: localShops.region,
+    })
+    .from(localShops)
+    .where(eq(localShops.active, true))
+    .all();
+}
+
+/** Register a local shop's Shopify storefront. `domain` must be unique — a
+ * shop that already exists is left as-is rather than erroring, so this is
+ * safe to call from a seed script run more than once. */
+export async function addLocalShop(shop: {
+  name: string;
+  domain: string;
+  city?: string | null;
+  region?: string | null;
+}): Promise<void> {
+  await ensureDb();
+  await db
+    .insert(localShops)
+    .values({
+      name: shop.name,
+      domain: shop.domain,
+      city: shop.city ?? null,
+      region: shop.region ?? null,
+      active: true,
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing({ target: localShops.domain });
+}
+
+/** Cached "where to buy" offer result for one release. `offers`/`sources` are
+ * deliberately untyped JSON here — `src/lib/offers/orchestrator.ts` owns the
+ * real `Offer[]`/`SourceStatus[]` shapes and casts on read, so this module
+ * doesn't need to import from `lib/offers`. */
+export interface CachedOfferResult {
+  offers: unknown;
+  sources: unknown;
+  fetchedAt: Date;
+}
+
+export async function getCachedOffers(
+  discogsReleaseId: number,
+): Promise<CachedOfferResult | null> {
+  await ensureDb();
+  const row = await db
+    .select()
+    .from(offerCache)
+    .where(eq(offerCache.discogsReleaseId, discogsReleaseId))
+    .get();
+
+  if (!row || row.expiresAt < new Date()) return null;
+  return {
+    offers: parseJson(row.offers, []),
+    sources: parseJson(row.sources, []),
+    fetchedAt: row.createdAt,
+  };
+}
+
+/** `now` is caller-supplied (not `new Date()` here) so the timestamp the
+ * caller already returned to its own caller — e.g. a fresh `OfferResult`'s
+ * `fetchedAt` — is bit-identical to what a subsequent cached read sees,
+ * rather than two independently-generated `Date`s that round differently
+ * once SQLite's second-precision integer timestamp storage truncates them. */
+export async function cacheOffers(
+  discogsReleaseId: number,
+  offers: unknown,
+  sources: unknown,
+  ttlMs: number,
+  now: Date = new Date(),
+): Promise<void> {
+  await ensureDb();
+  const values = {
+    discogsReleaseId,
+    offers: JSON.stringify(offers),
+    sources: JSON.stringify(sources),
+    expiresAt: new Date(now.getTime() + ttlMs),
+    createdAt: now,
+  };
+
+  await db
+    .insert(offerCache)
+    .values(values)
+    .onConflictDoUpdate({ target: offerCache.discogsReleaseId, set: values });
+}
+
+// --- Analytics events ---------------------------------------------------
+// Success-metrics instrumentation. See lib/analytics/metrics.ts for the pure
+// aggregation functions these wrap, and lib/analytics/types.ts for the fixed
+// set of event types loggable here.
+
+/** Never throws — a logging failure must not break the feature it's
+ * instrumenting (same philosophy as the Resend email wrapper: log and move
+ * on). */
+export async function logEvent(
+  userId: string,
+  type: string,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await ensureDb();
+    await db.insert(analyticsEvents).values({
+      userId,
+      type,
+      metadata: JSON.stringify(metadata),
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    console.error("[analytics] logEvent failed:", error);
+  }
+}
+
+export async function getAnalyticsEvents(types?: string[]): Promise<AnalyticsEventRow[]> {
+  await ensureDb();
+  const rows =
+    types && types.length > 0
+      ? await db.select().from(analyticsEvents).where(inArray(analyticsEvents.type, types)).all()
+      : await db.select().from(analyticsEvents).all();
+
+  return rows.map((r) => ({
+    userId: r.userId,
+    type: r.type,
+    metadata: parseJson<Record<string, unknown>>(r.metadata, {}),
+    createdAt: r.createdAt,
+  }));
+}
+
+/** Convenience wrappers combining the fetch above with the pure aggregation
+ * in lib/analytics/metrics.ts, for a script/REPL to call directly without
+ * knowing which event types feed which metric. No dashboard UI calls these
+ * yet — see handoff.md. */
+export async function getReasonCitationRate() {
+  return computeReasonCitationRate(await getAnalyticsEvents(["recommendations_generated"]));
+}
+
+export async function getFeedbackLikeRateBySource() {
+  return computeFeedbackLikeRate(await getAnalyticsEvents(["feedback_given"]));
+}
+
+export async function getSyncToFirstRecommendationStats() {
+  return computeSyncToFirstRecommendation(
+    await getAnalyticsEvents(["spotify_sync_completed", "recommendations_generated"]),
+  );
+}
+
+export async function getSearchToReservationFunnel() {
+  return computeFunnel(
+    await getAnalyticsEvents(["search_performed", "search_result_click", "reservation_created"]),
+    ["search_performed", "search_result_click", "reservation_created"],
+  );
+}
+
+export async function getEmailToReservationFunnel() {
+  return computeFunnel(
+    await getAnalyticsEvents(["price_drop_email_click", "reservation_created"]),
+    ["price_drop_email_click", "reservation_created"],
+  );
 }

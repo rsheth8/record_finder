@@ -4,6 +4,7 @@ import { FeedbackButtons } from "@/components/album/feedback-buttons";
 import { SimilarReleases } from "@/components/album/similar-releases";
 import { PressingDetails } from "@/components/album/pressing-details";
 import { ComparePressings } from "@/components/album/compare-pressings";
+import { WhereToBuy } from "@/components/album/where-to-buy";
 import { AlbumActions } from "@/components/album/album-actions";
 import { BackLink } from "@/components/album/back-link";
 import { Badge } from "@/components/ui/badge";
@@ -183,6 +184,16 @@ export function AlbumDetail({
           </ul>
         </Card>
       )}
+
+      <Suspense
+        fallback={
+          <div className="flex justify-center py-4">
+            <VinylLoader variant="inline" message="Checking prices across sources..." />
+          </div>
+        }
+      >
+        <WhereToBuy release={release} />
+      </Suspense>
 
       {release.formats.length > 0 && (
         <Card>

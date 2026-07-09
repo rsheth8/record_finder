@@ -146,3 +146,19 @@ export const localShops = sqliteTable("local_shops", {
 }, (t) => ({
   domainIdx: uniqueIndex("local_shops_domain_idx").on(t.domain),
 }));
+
+// Shared, DB-backed cache for the "where to buy" offer panel (mirrors
+// recommendation_cache) — replaces the earlier in-memory Map, which was lost
+// on every serverless cold start and not shared across instances. One row per
+// release; `offers`/`sources` are JSON (see offers/orchestrator.ts's
+// OfferResult).
+export const offerCache = sqliteTable("offer_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  offers: text("offers").notNull().default("[]"),
+  sources: text("sources").notNull().default("[]"),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  releaseIdx: uniqueIndex("offer_cache_release_idx").on(t.discogsReleaseId),
+}));

@@ -11,6 +11,7 @@ import {
   quizResponses,
   priceHistory,
   localShops,
+  offerCache,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
@@ -901,4 +902,59 @@ export async function addLocalShop(shop: {
       createdAt: new Date(),
     })
     .onConflictDoNothing({ target: localShops.domain });
+}
+
+/** Cached "where to buy" offer result for one release. `offers`/`sources` are
+ * deliberately untyped JSON here — `src/lib/offers/orchestrator.ts` owns the
+ * real `Offer[]`/`SourceStatus[]` shapes and casts on read, so this module
+ * doesn't need to import from `lib/offers`. */
+export interface CachedOfferResult {
+  offers: unknown;
+  sources: unknown;
+  fetchedAt: Date;
+}
+
+export async function getCachedOffers(
+  discogsReleaseId: number,
+): Promise<CachedOfferResult | null> {
+  await ensureDb();
+  const row = await db
+    .select()
+    .from(offerCache)
+    .where(eq(offerCache.discogsReleaseId, discogsReleaseId))
+    .get();
+
+  if (!row || row.expiresAt < new Date()) return null;
+  return {
+    offers: parseJson(row.offers, []),
+    sources: parseJson(row.sources, []),
+    fetchedAt: row.createdAt,
+  };
+}
+
+/** `now` is caller-supplied (not `new Date()` here) so the timestamp the
+ * caller already returned to its own caller — e.g. a fresh `OfferResult`'s
+ * `fetchedAt` — is bit-identical to what a subsequent cached read sees,
+ * rather than two independently-generated `Date`s that round differently
+ * once SQLite's second-precision integer timestamp storage truncates them. */
+export async function cacheOffers(
+  discogsReleaseId: number,
+  offers: unknown,
+  sources: unknown,
+  ttlMs: number,
+  now: Date = new Date(),
+): Promise<void> {
+  await ensureDb();
+  const values = {
+    discogsReleaseId,
+    offers: JSON.stringify(offers),
+    sources: JSON.stringify(sources),
+    expiresAt: new Date(now.getTime() + ttlMs),
+    createdAt: now,
+  };
+
+  await db
+    .insert(offerCache)
+    .values(values)
+    .onConflictDoUpdate({ target: offerCache.discogsReleaseId, set: values });
 }

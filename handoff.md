@@ -209,9 +209,9 @@ live-match spikes) that de-risked the approach before this build.
     `SERPAPI_KEY`; absent key = panel just shows the Discogs offer.
   - `orchestrator.ts` — `getOffers(release)`: runs adapters in parallel with
     per-source failure isolation, filters to likely+ (≥0.75), de-dupes, ranks by
-    **landed cost (price + shipping)**, caps at 8. In-memory TTL cache (6h) keeps
-    the paid meta-search cost bounded — a DB-backed cache (mirroring
-    `recommendation_cache`) is the prod step for multi-instance.
+    **landed cost (price + shipping)**, caps at 8. TTL cache (6h) keeps the paid
+    meta-search cost bounded — DB-backed (`offer_cache`, mirroring
+    `recommendation_cache`) since the "DB-backed offer cache" entry below.
 - **UI** — `components/album/where-to-buy.tsx`, an async Server Component
   streamed behind `<Suspense>` in `album-detail.tsx` (same pattern as
   `SimilarReleases`), since the meta-search is slow/networked/paid. Rows show
@@ -292,6 +292,15 @@ Second and third steps of the offer roadmap: a second/third source, plus turning
   never blanks the panel. Fixed a footer-label bug where any non-Google-Shopping
   source was mislabeled "Discogs" (would have mislabeled eBay before it shipped).
 
+## DB-backed offer cache (2026-07-08, later)
+
+Replaced the offer panel's in-process `Map` cache (lost on every serverless cold start, not shared across instances — the "prod step" flagged in the original build) with a real DB-backed cache, same pattern as `recommendation_cache`.
+
+- **`offer_cache` table** (migration `0007_thick_lake.sql`) — one row per `discogsReleaseId`, `offers`/`sources` as JSON, `expiresAt`/`createdAt`. Queries: `getCachedOffers()`, `cacheOffers()` in `db/queries.ts`. Deliberately untyped (`unknown`) on the DB side — `offers/orchestrator.ts` owns the real `Offer[]`/`SourceStatus[]` shapes and casts on read, so `db/queries.ts` doesn't need to import from `lib/offers`.
+- **A real bug caught by its own test**: SQLite's `{ mode: "timestamp" }` integer columns truncate to whole seconds on write, but the in-memory `OfferResult.fetchedAt` used millisecond `Date.now()` — so a fresh response and an immediately-following cached read of the *same write* wouldn't have matched bit-for-bit. Fixed by rounding once (`Math.floor(Date.now() / 1000) * 1000`) and threading that single `Date` through both the returned result and the persisted row, rather than two independently-generated timestamps.
+- **Verified end-to-end, unconfounded**: cleared the cache table, ran `getOffers()` twice in a row on a release untouched anywhere else this session — 115ms (cold) → 1ms (cached), exact `fetchedAt` and content equality. (Also verified, in passing, that raw SerpApi latency is genuinely ~150-200ms per query — the "16s" page-load times seen earlier in this session are the *unrelated*, pre-existing Discogs 1-req/sec throttle used by `SimilarReleases`/`ComparePressings`, not this panel; don't mistake total album-page load time for this cache's own performance.)
+- **`getOffers(release, { fresh: true })`** bypasses the cache and overwrites the row — proven with a content-based test (cache a `numForSale: 5` result, then `fresh: true` with `numForSale: 9` for the same release id, assert the new value both in the return value and in the persisted row) rather than a timing-based one, since two real `Date.now()` calls can legitimately land in the same rounded second.
+
 ## UI/UX craft pass (2026-07-08, later)
 
 A visual/motion-only polish pass — no behavior, data-flow, or business-logic changes. Highlights:
@@ -321,7 +330,7 @@ Added tests for previously-uncovered pure logic: `group.ts` (including a regress
 
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0006_perpetual_ted_forrester.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0007_thick_lake.sql`.
 
 | Table | Purpose |
 |-------|---------|
@@ -332,6 +341,7 @@ Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0006_perpetua
 | `recommendation_feedback` | like / dislike / own / hide per release |
 | `wishlist_items` | Saved vinyl releases + `priceAtAdd`/`lastAlertedPrice` for price-drop alerts |
 | `price_history` | Daily price snapshots for wishlisted releases (deduped across users) |
+| `offer_cache` | DB-backed cache for the "where to buy" panel — `Offer[]`/`SourceStatus[]` JSON, 6h expiry |
 | `local_shops` | Registered local-shop Shopify storefronts for the "where to buy" panel — see "eBay + affiliate tagging + local-shop sources". Empty by default; no self-serve claim flow yet |
 | `users`, `credit_ledger`, `orders` | Auth + credits + reservations |
 

@@ -13,7 +13,7 @@ import { searchGoogleShopping } from "./google-shopping";
 import { searchEbay } from "./ebay";
 import { searchAllShopifyShops, type LocalShopInfo } from "./shopify";
 import { applyAffiliateTags } from "./affiliate";
-import { listActiveLocalShops } from "@/lib/db/queries";
+import { cacheOffers, getCachedOffers, listActiveLocalShops } from "@/lib/db/queries";
 
 /** Drop anything below "likely" — we never show a low-confidence guess. */
 export const MIN_OFFER_CONFIDENCE = 0.75;
@@ -76,8 +76,6 @@ export function rankOffers(offers: Offer[]): Offer[] {
   });
 }
 
-const cache = new Map<number, OfferResult>();
-
 /**
  * One networked source's fetch, wrapped so a failure (missing key, network
  * error, rate limit, ...) becomes a `SourceStatus` entry instead of throwing —
@@ -121,16 +119,23 @@ export interface GetOffersOptions {
  * their credentials/registrations aren't present. Networked sources run in
  * parallel so adding more never adds latency linearly.
  *
- * NOTE: cache is per-process/in-memory for now — fine for a single instance;
- * a shared DB-backed cache (mirroring `recommendation_cache`) is the prod step.
+ * Cache is DB-backed (`offer_cache`, mirrors `recommendation_cache`) rather
+ * than an in-process Map — shared across serverless instances and survives
+ * cold starts, both of which an in-memory cache silently didn't.
  */
 export async function getOffers(
   release: DiscogsRelease,
   opts: GetOffersOptions = {},
 ): Promise<OfferResult> {
-  const cached = cache.get(release.id);
-  if (!opts.fresh && cached && Date.now() - cached.fetchedAt < OFFER_CACHE_TTL_MS) {
-    return cached;
+  if (!opts.fresh) {
+    const cached = await getCachedOffers(release.id).catch(() => null);
+    if (cached) {
+      return {
+        offers: cached.offers as Offer[],
+        sources: cached.sources as SourceStatus[],
+        fetchedAt: cached.fetchedAt.getTime(),
+      };
+    }
   }
 
   const key = buildReleaseKey(release);
@@ -180,7 +185,15 @@ export async function getOffers(
   // each source's authentic URL, not a rewritten redirect.
   const offers = applyAffiliateTags(ranked);
 
-  const result: OfferResult = { offers, sources, fetchedAt: Date.now() };
-  cache.set(release.id, result);
+  // Round to the second before it's used anywhere: the DB's integer timestamp
+  // storage truncates sub-second precision on write, so a fresh response and a
+  // subsequent cached-read of this exact write must agree on the same
+  // pre-rounded value rather than two independently-generated Dates that
+  // round differently.
+  const fetchedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const result: OfferResult = { offers, sources, fetchedAt: fetchedAt.getTime() };
+  // Cache-write failures must never break the panel — worst case, the next
+  // request just refetches instead of hitting a stale/missing cache.
+  await cacheOffers(release.id, offers, sources, OFFER_CACHE_TTL_MS, fetchedAt).catch(() => {});
   return result;
 }

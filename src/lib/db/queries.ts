@@ -95,6 +95,22 @@ const EMPTY_TOP_BY_TERM = <T,>(): SpotifyTopByTerm<T> => ({
   long: [],
 });
 
+function parseJsonArray<T>(value: string, fallback: T[]): T[] {
+  const parsed = parseJson<T[] | null>(value, fallback);
+  return Array.isArray(parsed) ? parsed : fallback;
+}
+
+/** Legacy rows may omit short/medium/long — coerce before any `.length` access. */
+function normalizeTopByTerm<T>(
+  value: SpotifyTopByTerm<T> | null | undefined,
+): SpotifyTopByTerm<T> {
+  return {
+    short: Array.isArray(value?.short) ? value.short : [],
+    medium: Array.isArray(value?.medium) ? value.medium : [],
+    long: Array.isArray(value?.long) ? value.long : [],
+  };
+}
+
 export async function getSpotifySnapshot(
   userId: string,
 ): Promise<StoredSpotifySnapshot | null> {
@@ -106,13 +122,17 @@ export async function getSpotifySnapshot(
     .get();
   if (!row) return null;
 
-  const topArtistsByTermParsed = parseJson<SpotifyTopByTerm<SpotifyArtist>>(
-    row.topArtistsByTerm,
-    EMPTY_TOP_BY_TERM(),
+  const topArtistsByTermParsed = normalizeTopByTerm(
+    parseJson<SpotifyTopByTerm<SpotifyArtist>>(
+      row.topArtistsByTerm,
+      EMPTY_TOP_BY_TERM(),
+    ),
   );
-  const topTracksByTerm = parseJson<SpotifyTopByTerm<SpotifyTrack>>(
-    row.topTracksByTerm,
-    EMPTY_TOP_BY_TERM(),
+  const topTracksByTerm = normalizeTopByTerm(
+    parseJson<SpotifyTopByTerm<SpotifyTrack>>(
+      row.topTracksByTerm,
+      EMPTY_TOP_BY_TERM(),
+    ),
   );
   const tasteVectorRaw = parseJson<TasteVector | Record<string, never>>(
     row.tasteVector,
@@ -123,7 +143,7 @@ export async function getSpotifySnapshot(
       ? (tasteVectorRaw as TasteVector)
       : null;
 
-  const legacyTopArtists = parseJson<SpotifyArtist[]>(row.topArtists, []);
+  const legacyTopArtists = parseJsonArray<SpotifyArtist>(row.topArtists, []);
   const topArtistsByTerm =
     topArtistsByTermParsed.medium.length > 0
       ? topArtistsByTermParsed
@@ -136,10 +156,13 @@ export async function getSpotifySnapshot(
   return {
     topArtists: topArtistsByTerm,
     topTracks: topTracksByTerm,
-    savedAlbums: parseJson<SpotifyAlbum[]>(row.savedAlbums, []),
-    savedTracks: parseJson<SpotifyTrack[]>(row.savedTracks, []),
-    recentlyPlayed: parseJson<SpotifyRecentlyPlayed[]>(row.recentlyPlayed, []),
-    topGenres: parseJson<string[]>(row.topGenres, []),
+    savedAlbums: parseJsonArray<SpotifyAlbum>(row.savedAlbums, []),
+    savedTracks: parseJsonArray<SpotifyTrack>(row.savedTracks, []),
+    recentlyPlayed: parseJsonArray<SpotifyRecentlyPlayed>(
+      row.recentlyPlayed,
+      [],
+    ),
+    topGenres: parseJsonArray<string>(row.topGenres, []),
     tasteVector,
     fetchedAt: row.fetchedAt,
   };
@@ -150,19 +173,21 @@ export async function saveSpotifySnapshot(
   data: SpotifyListeningSnapshot & { tasteVector?: TasteVector | null },
 ) {
   await ensureDb();
-  const topArtistsMedium = data.topArtists.medium;
-  const topAlbumsFromTracks = deriveTopAlbumsFromTracks(data.topTracks.medium);
+  const topArtists = normalizeTopByTerm(data.topArtists);
+  const topTracks = normalizeTopByTerm(data.topTracks);
+  const topArtistsMedium = topArtists.medium;
+  const topAlbumsFromTracks = deriveTopAlbumsFromTracks(topTracks.medium);
 
   const values = {
     userId,
     topArtists: JSON.stringify(topArtistsMedium),
     topAlbums: JSON.stringify(topAlbumsFromTracks),
     topGenres: JSON.stringify(data.topGenres),
-    topArtistsByTerm: JSON.stringify(data.topArtists),
-    topTracksByTerm: JSON.stringify(data.topTracks),
-    savedAlbums: JSON.stringify(data.savedAlbums),
-    savedTracks: JSON.stringify(data.savedTracks),
-    recentlyPlayed: JSON.stringify(data.recentlyPlayed),
+    topArtistsByTerm: JSON.stringify(topArtists),
+    topTracksByTerm: JSON.stringify(topTracks),
+    savedAlbums: JSON.stringify(data.savedAlbums ?? []),
+    savedTracks: JSON.stringify(data.savedTracks ?? []),
+    recentlyPlayed: JSON.stringify(data.recentlyPlayed ?? []),
     tasteVector: JSON.stringify(data.tasteVector ?? {}),
     fetchedAt: data.fetchedAt ?? new Date(),
   };
@@ -314,7 +339,7 @@ export async function getCachedRecommendations(
     .get();
 
   if (!row || row.expiresAt < new Date()) return null;
-  return normalizeRecommendations(parseJson<Recommendation[]>(row.results, []));
+  return normalizeRecommendations(parseJsonArray<Recommendation>(row.results, []));
 }
 
 /** When the current recommendation cache expires (and picks regenerate on

@@ -10,6 +10,7 @@ import {
   orders,
   quizResponses,
   priceHistory,
+  localShops,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
@@ -851,4 +852,53 @@ export async function markWishlistAlerted(
     .update(wishlistItems)
     .set({ lastAlertedPrice: price })
     .where(eq(wishlistItems.id, wishlistItemId));
+}
+
+export interface LocalShop {
+  id: number;
+  name: string;
+  domain: string;
+  city: string | null;
+  region: string | null;
+}
+
+/** Active local shops whose Shopify storefront the offer orchestrator should
+ * search — see `src/lib/offers/shopify.ts`. No public claim/self-serve flow
+ * yet; rows are added by hand via `addLocalShop`. */
+export async function listActiveLocalShops(): Promise<LocalShop[]> {
+  await ensureDb();
+  return db
+    .select({
+      id: localShops.id,
+      name: localShops.name,
+      domain: localShops.domain,
+      city: localShops.city,
+      region: localShops.region,
+    })
+    .from(localShops)
+    .where(eq(localShops.active, true))
+    .all();
+}
+
+/** Register a local shop's Shopify storefront. `domain` must be unique — a
+ * shop that already exists is left as-is rather than erroring, so this is
+ * safe to call from a seed script run more than once. */
+export async function addLocalShop(shop: {
+  name: string;
+  domain: string;
+  city?: string | null;
+  region?: string | null;
+}): Promise<void> {
+  await ensureDb();
+  await db
+    .insert(localShops)
+    .values({
+      name: shop.name,
+      domain: shop.domain,
+      city: shop.city ?? null,
+      region: shop.region ?? null,
+      active: true,
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing({ target: localShops.domain });
 }

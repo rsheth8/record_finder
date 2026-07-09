@@ -11,7 +11,9 @@ import type { Offer, OfferSource } from "./types";
 import { buildReleaseKey, discogsOffer } from "./discogs";
 import { searchGoogleShopping } from "./google-shopping";
 import { searchEbay } from "./ebay";
+import { searchAllShopifyShops, type LocalShopInfo } from "./shopify";
 import { applyAffiliateTags } from "./affiliate";
+import { listActiveLocalShops } from "@/lib/db/queries";
 
 /** Drop anything below "likely" — we never show a low-confidence guess. */
 export const MIN_OFFER_CONFIDENCE = 0.75;
@@ -106,16 +108,18 @@ export interface GetOffersOptions {
   googleShoppingApiKey?: string;
   /** Override eBay Developer credentials (else read from env). */
   ebayCredentials?: { clientId: string; clientSecret: string };
+  /** Override the registered local-shop list (else read from the DB). */
+  localShops?: LocalShopInfo[];
   /** Bypass the cache and refetch every source. */
   fresh?: boolean;
 }
 
 /**
  * Gather, rank, and cache offers for a release. `release.marketplace` is reused
- * so the Discogs offer is free; Google Shopping and eBay are the networked
- * sources and are skipped cleanly (not errored) when their credentials aren't
- * configured. Networked sources run in parallel so adding more never adds
- * latency linearly.
+ * so the Discogs offer is free; Google Shopping, eBay, and Shopify (local
+ * shops) are the networked sources and are skipped cleanly (not errored) when
+ * their credentials/registrations aren't present. Networked sources run in
+ * parallel so adding more never adds latency linearly.
  *
  * NOTE: cache is per-process/in-memory for now — fine for a single instance;
  * a shared DB-backed cache (mirroring `recommendation_cache`) is the prod step.
@@ -144,6 +148,7 @@ export async function getOffers(
     (process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET
       ? { clientId: process.env.EBAY_CLIENT_ID, clientSecret: process.env.EBAY_CLIENT_SECRET }
       : undefined);
+  const localShops = opts.localShops ?? (await listActiveLocalShops().catch(() => []));
 
   const networked = await Promise.all([
     fetchSource("google-shopping", () =>
@@ -154,6 +159,11 @@ export async function getOffers(
     fetchSource("ebay", () =>
       ebayCreds
         ? searchEbay(key, { credentials: ebayCreds, minConfidence: MIN_OFFER_CONFIDENCE })
+        : null,
+    ),
+    fetchSource("shopify", () =>
+      localShops.length > 0
+        ? searchAllShopifyShops(localShops, key, { minConfidence: MIN_OFFER_CONFIDENCE })
         : null,
     ),
   ]);

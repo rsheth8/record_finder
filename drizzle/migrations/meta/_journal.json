@@ -43,6 +43,13 @@
       "when": 1783495032672,
       "tag": "0005_peaceful_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783563860778,
+      "tag": "0006_perpetual_ted_forrester",
+      "breakpoints": true
     }
   ]
 }

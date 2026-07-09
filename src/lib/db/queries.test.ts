@@ -21,6 +21,8 @@ import {
   setWishlistPriceAtAdd,
   getWishlistAlertCandidates,
   markWishlistAlerted,
+  addLocalShop,
+  listActiveLocalShops,
 } from "@/lib/db/queries";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
@@ -33,6 +35,12 @@ function uid(prefix = "u") {
 let releaseCounter = 0;
 function rid() {
   return Date.now() * 1000 + releaseCounter++;
+}
+
+// local_shops.domain is unique, so each test needs its own.
+let domainCounter = 0;
+function testDomain() {
+  return `test-shop-${Date.now()}-${domainCounter++}.example.com`;
 }
 
 // Note: the throwaway DB file (./data/vitest-test.db) persists across runs.
@@ -312,5 +320,25 @@ describe("price history", () => {
       await markWishlistAlerted(item.id, 22);
       expect((await getWishlist(user))[0].lastAlertedPrice).toBe(22);
     });
+  });
+});
+
+describe("local shops", () => {
+  it("registers a shop and lists it as active", async () => {
+    const domain = testDomain();
+    await addLocalShop({ name: "Test Vinyl Co", domain, city: "Austin", region: "TX" });
+    const shops = await listActiveLocalShops();
+    expect(shops.some((s) => s.domain === domain && s.name === "Test Vinyl Co")).toBe(true);
+  });
+
+  it("is idempotent — registering the same domain twice doesn't duplicate or error", async () => {
+    const domain = testDomain();
+    await addLocalShop({ name: "First Name", domain });
+    await addLocalShop({ name: "Second Name", domain });
+    const shops = await listActiveLocalShops();
+    const matches = shops.filter((s) => s.domain === domain);
+    expect(matches).toHaveLength(1);
+    // onConflictDoNothing means the *first* registration wins.
+    expect(matches[0].name).toBe("First Name");
   });
 });

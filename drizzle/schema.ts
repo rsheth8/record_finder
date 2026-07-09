@@ -128,3 +128,21 @@ export const orders = sqliteTable("orders", {
   discogsUrl: text("discogs_url").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+// Local/independent record stores that have opted their Shopify storefront
+// into the "where to buy" offer panel — the seed of the local-shop flywheel.
+// No public self-serve claim/verification flow yet (see offers/shopify.ts);
+// rows are added by hand for now via addLocalShop().
+export const localShops = sqliteTable("local_shops", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  // Storefront domain that exposes Shopify's public /products.json (a
+  // *.myshopify.com domain or a custom domain still proxying to Shopify).
+  domain: text("domain").notNull(),
+  city: text("city"),
+  region: text("region"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  domainIdx: uniqueIndex("local_shops_domain_idx").on(t.domain),
+}));

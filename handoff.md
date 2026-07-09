@@ -215,17 +215,82 @@ live-match spikes) that de-risked the approach before this build.
 - **UI** — `components/album/where-to-buy.tsx`, an async Server Component
   streamed behind `<Suspense>` in `album-detail.tsx` (same pattern as
   `SimilarReleases`), since the meta-search is slow/networked/paid. Rows show
-  seller, price + shipping note, a confidence badge (green **Verified** = this
-  exact release; **Likely** = matched by artist+title), and a "Best price"
-  highlight on the cheapest. Outbound links carry `rel="... sponsored"` —
-  affiliate-tagging (eBay Partner Network / Skimlinks) is a later step.
+  seller, a per-source tag (Google Shopping / eBay / Discogs / local shops),
+  price + shipping note, a confidence badge (green **Verified** = this exact
+  release; **Likely** = matched by artist+title), and a "Best price" highlight
+  on the cheapest. Outbound links carry `rel="... sponsored"`.
 - **Verified live** on real records across desktop / light theme / mobile: e.g.
   Blue Lines returns 8 ranked offers ($14.99 Vinyl Junkies … $36.07 verified
   Discogs), including Barnes & Noble surfaced *via Google Shopping*.
 - **Known limits (v1):** offers cap at "likely" from Google Shopping (list items
-  don't expose a UPC to verify against — eBay's GTIN search will unlock a true
-  "verified" tier); unknown shipping is treated as $0 for ranking (shown as
-  "plus shipping"); the non-record penalty is a starter heuristic.
+  don't expose a UPC to verify against); unknown shipping is treated as $0 for
+  ranking (shown as "plus shipping"); the non-record penalty is a starter
+  heuristic.
+
+## eBay + affiliate tagging + local-shop (Shopify) sources (2026-07-08, later)
+
+Second and third steps of the offer roadmap: a second/third source, plus turning the outbound links into real (or ready-to-be-real) revenue.
+
+- **`src/lib/offers/ebay.ts`** — eBay Browse API adapter. GTIN search first
+  (`?gtin=...`) — eBay's own catalog does the barcode match here, not our fuzzy
+  scorer, so a hit is a genuine **verified** offer, unlike Google Shopping's
+  ceiling of "likely". Falls back to the same text query + fuzzy scoring when
+  the release has no UPC. OAuth2 client-credentials with an in-process cached
+  app token (~2h). Gated on `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET`; the
+  orchestrator skips it silently without them. **Code-complete and unit-tested
+  but not live-verified** — no eBay Developer credentials were available this
+  session.
+- **`src/lib/offers/affiliate.ts`** — outbound link tagging, applied last (after
+  ranking/dedup, so those operate on authentic URLs) and cached alongside the
+  offer list:
+  - **eBay** — sends `EBAY_CAMPAIGN_ID` via the `X-EBAY-C-ENDUSERCTX` header on
+    the search request (format verified against eBay's docs), so the Browse
+    API itself returns an affiliate-tagged `itemAffiliateWebUrl` — no separate
+    link-rewriting needed.
+  - **Everything else** (arbitrary retailers surfaced via Google Shopping —
+    Walmart, Barnes & Noble, indie shops we have no individual deal with) is
+    wrapped through **Skimlinks**' `go.skimresources.com` redirect, which
+    auto-affiliates ~48,500 merchants through one integration, no per-merchant
+    signup. Gated on `SKIMLINKS_PUBLISHER_ID`.
+  - `hasAffiliateLink()` is a ground-truth check on the *actual rendered URLs*
+    (not "is config present"), so the panel's FTC disclosure footer only shows
+    when a link is genuinely tagged — verified live end-to-end with a
+    placeholder Skimlinks ID (7/8 real offers wrapped correctly, Discogs link
+    left untouched, disclosure appeared), then reverted to the inactive,
+    commented-out `.env.local` state.
+  - Discogs has no wired affiliate program yet — its offer is always a direct
+    link.
+- **`src/lib/offers/shopify.ts`** — the seed of the local-record-store
+  flywheel. Every Shopify storefront exposes its full catalog at a public,
+  no-auth `/products.json` (used by Shopify's own theme JS) — zero API keys,
+  zero per-shop integration work. **Verified live against a real store**
+  (turntablelab.com, not registered as a partner — used only to prove the
+  fetch/match mechanics on real, messy data): true match ("Catherine Wheel —
+  Chrome") scored 0.95/likely with the correct price and product URL; a
+  different album by the same artist correctly scored below the display
+  threshold; unrelated real inventory never false-matched. Confirmed the
+  public feed has **no `barcode` field** (that's Admin-API-only) by inspecting
+  a live response — so Shopify offers, like Google Shopping's, can only ever
+  reach "likely", never "verified".
+  - **`local_shops` table** (migration `0006_perpetual_ted_forrester.sql`) is
+    the shop registry — `name`, `domain`, `city`, `region`, `active`. Queries:
+    `listActiveLocalShops()`, `addLocalShop()` (idempotent on `domain`) in
+    `db/queries.ts`.
+  - **This is foundation only, not a public feature yet** — there is no
+    self-serve "claim your shop" form, no ownership verification, no
+    moderation queue. Shops are registered by hand by calling `addLocalShop()`
+    (e.g. from a one-off script or a future admin route). The `local_shops`
+    table is currently **empty** in this repo — nothing changes for end users
+    until shops are actually registered.
+  - **No per-shop catalog cache/index yet** — each offer request live-fetches
+    a shop's first 250 products. Fine for a handful of shops; once there are
+    more than a few, a periodic sync job (mirroring the price-snapshot cron)
+    should replace the live fetch.
+- **`orchestrator.ts`** — networked sources (Google Shopping, eBay, Shopify)
+  now run in parallel via a shared `fetchSource()` isolator instead of
+  sequentially; each source's failure/absence is reported independently and
+  never blanks the panel. Fixed a footer-label bug where any non-Google-Shopping
+  source was mislabeled "Discogs" (would have mislabeled eBay before it shipped).
 
 ## UI/UX craft pass (2026-07-08, later)
 
@@ -256,7 +321,7 @@ Added tests for previously-uncovered pure logic: `group.ts` (including a regress
 
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0005_peaceful_scarecrow.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0006_perpetual_ted_forrester.sql`.
 
 | Table | Purpose |
 |-------|---------|
@@ -267,6 +332,7 @@ Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0005_peaceful
 | `recommendation_feedback` | like / dislike / own / hide per release |
 | `wishlist_items` | Saved vinyl releases + `priceAtAdd`/`lastAlertedPrice` for price-drop alerts |
 | `price_history` | Daily price snapshots for wishlisted releases (deduped across users) |
+| `local_shops` | Registered local-shop Shopify storefronts for the "where to buy" panel — see "eBay + affiliate tagging + local-shop sources". Empty by default; no self-serve claim flow yet |
 | `users`, `credit_ledger`, `orders` | Auth + credits + reservations |
 
 Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/index.ts`.
@@ -326,7 +392,7 @@ Copy `.env.example` → `.env.local`. Required for full functionality:
 - `DISCOGS_TOKEN`
 - `DATABASE_URL` (defaults to local SQLite file)
 
-Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending), `SERPAPI_KEY` (Google Shopping meta-search for the album "Where to buy" panel; omitted = panel shows the Discogs offer only — see "Multi-source Where to buy offers").
+Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending), `SERPAPI_KEY` (Google Shopping meta-search for the album "Where to buy" panel; omitted = panel shows the Discogs offer only), `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` (eBay Browse API offer source; omitted = source skipped), `EBAY_CAMPAIGN_ID` (eBay Partner Network affiliate tagging; only meaningful with the eBay creds above), `SKIMLINKS_PUBLISHER_ID` (affiliate-tags Google Shopping / local-shop offer links via Skimlinks; omitted = those links stay direct, no affiliate disclosure shown) — see "eBay + affiliate tagging + local-shop sources".
 
 A missing `DISCOGS_TOKEN` fails fast with an actionable error (pointing at discogs.com/settings/developers) instead of a cryptic upstream `401 Invalid consumer token` — a personal access token is enough; no app registration needed. Note `.env.local` is per-directory, so each git worktree needs its own copy.
 

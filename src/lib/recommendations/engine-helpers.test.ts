@@ -4,9 +4,18 @@ import {
   quizAffinityAdjustment,
   buildFeedbackAffinity,
   feedbackAffinityAdjustment,
+  collectReasonBuckets,
+  interleaveReasons,
 } from "@/lib/recommendations/engine";
 import { deriveTopGenres } from "@/lib/spotify/client";
-import type { SpotifyArtist, FeedbackEntry, WishlistItem } from "@/lib/types";
+import type {
+  SpotifyArtist,
+  FeedbackEntry,
+  WishlistItem,
+  Recommendation,
+  SpotifyAlbum,
+  TasteProfileData,
+} from "@/lib/types";
 
 describe("mapQuizGenresToSpotify", () => {
   it("maps quiz genres to Spotify seed slugs", () => {
@@ -141,5 +150,104 @@ describe("buildFeedbackAffinity + feedbackAffinityAdjustment", () => {
   it("defaults to an empty wishlist when omitted", () => {
     const affinity = buildFeedbackAffinity(feedback);
     expect(affinity.wishlistArtists.size).toBe(0);
+  });
+});
+
+describe("interleaveReasons", () => {
+  it("round-robins across sources instead of exhausting one source first", () => {
+    const out = interleaveReasons({
+      spotify: ["spotify1", "spotify2", "spotify3"],
+      quiz: ["quiz1"],
+      community: ["community1"],
+    });
+    // A pure priority-order bug would put all 3 spotify reasons before quiz1.
+    // Round-robin guarantees quiz1 lands in the first 2 (spotify, quiz, ...).
+    expect(out.slice(0, 2)).toContain("quiz1");
+    expect(out).toEqual(["spotify1", "quiz1", "community1", "spotify2", "spotify3"]);
+  });
+
+  it("returns a fallback when every bucket is empty", () => {
+    expect(interleaveReasons({ spotify: [], quiz: [], community: [] })).toEqual([
+      "Recommended based on your taste profile",
+    ]);
+  });
+
+  it("is a no-op ordering when only one bucket has entries (quiz-only path)", () => {
+    const out = interleaveReasons({
+      spotify: [],
+      quiz: ["quiz1", "quiz2"],
+      community: [],
+    });
+    expect(out).toEqual(["quiz1", "quiz2"]);
+  });
+});
+
+describe("collectReasonBuckets", () => {
+  const profile: TasteProfileData = {
+    genres: ["Rock"],
+    decades: ["1990s"],
+    moods: ["Groovy"],
+    albumPreference: "balanced",
+    deepCutLevel: 50,
+    completedAt: new Date(),
+  };
+
+  const album: SpotifyAlbum = {
+    id: "album1",
+    name: "Test Album",
+    artist: "Test Artist",
+    artistId: "artist1",
+    releaseDate: "1995-01-01",
+    imageUrl: null,
+    spotifyUrl: "",
+  };
+
+  const rec: Recommendation = {
+    discogsReleaseId: 1,
+    title: "Test Album",
+    artist: "Test Artist",
+    year: 1995,
+    coverUrl: null,
+    genres: ["Funk"],
+    formats: ["Vinyl", "LP"],
+    communityRating: null,
+    ratingCount: null,
+    wantCount: null,
+    haveCount: null,
+    spotifyAlbumId: null,
+    spotifyUrl: null,
+    score: 0,
+    reasons: [],
+  };
+
+  it("buckets a top-artist match under spotify, a decade match under quiz", () => {
+    const matchedArtist: SpotifyArtist = {
+      id: "artist1",
+      name: "Test Artist",
+      genres: [],
+      popularity: 50,
+    };
+    const buckets = collectReasonBuckets(rec, profile, matchedArtist, album, {});
+    expect(buckets.spotify).toEqual(["Related to your top artist Test Artist"]);
+    expect(buckets.quiz).toContain("Fits your 1990s era preference");
+  });
+
+  it("buckets community rating under community, not quiz or spotify", () => {
+    const rated = { ...rec, communityRating: 4.5, ratingCount: 100 };
+    const buckets = collectReasonBuckets(rated, profile, null, album, {});
+    expect(buckets.community).toEqual(["Highly rated on Discogs (4.5/5)"]);
+  });
+
+  it("attributes the deep-cut-preference reason to quiz, even though want-count is community data", () => {
+    const deepCutProfile = { ...profile, deepCutLevel: 90 };
+    const obscure = { ...rec, wantCount: 10, communityRating: null };
+    const buckets = collectReasonBuckets(obscure, deepCutProfile, null, album, {});
+    expect(buckets.quiz).toContain("A lesser-known pressing, per your deep-cut preference");
+    expect(buckets.community).toEqual([]);
+  });
+
+  it("produces no spotify reasons when there is no snapshot/taste-vector context (quiz-only path)", () => {
+    const buckets = collectReasonBuckets(rec, profile, null, album, {});
+    expect(buckets.spotify).toEqual([]);
   });
 });

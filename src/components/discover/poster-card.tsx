@@ -111,10 +111,14 @@ export function PosterCard({
               {rec.artist}
               {rec.year ? ` · ${rec.year}` : ""}
             </p>
-            {rec.reasons[0] && (
-              <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug text-muted">
-                {rec.reasons[0]}
-              </p>
+            {rec.reasons.length > 0 && (
+              <div className="mt-1.5 space-y-0.5">
+                {rec.reasons.slice(0, 2).map((reason) => (
+                  <p key={reason} className="line-clamp-1 text-[10px] leading-snug text-muted">
+                    {reason}
+                  </p>
+                ))}
+              </div>
             )}
           </div>
 

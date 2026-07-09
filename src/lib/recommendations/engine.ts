@@ -186,26 +186,45 @@ function genreOverlap(
   return score;
 }
 
-function buildReasons(
+/**
+ * Reason strings grouped by *why* they exist — not shown to users directly,
+ * used only to interleave the final list (see `buildReasons`) so a listening
+ * history signal doesn't systematically bury a quiz signal.
+ */
+interface ReasonBuckets {
+  /** Derived from Spotify listening history / the taste vector. */
+  spotify: string[];
+  /** Derived from quiz answers (genres, decades, moods, deep-cut level). */
+  quiz: string[];
+  /** Derived from Discogs community data (rating, want count). */
+  community: string[];
+}
+
+/** Every reason a pick could be shown for, un-ordered and categorized by
+ * source. Split from `buildReasons` purely so the interleave step below is
+ * independently testable without needing a real Discogs/Spotify fixture. */
+export function collectReasonBuckets(
   rec: Recommendation,
   profile: TasteProfileData,
   matchedArtist: SpotifyArtist | null,
   album: SpotifyAlbum,
   context: TasteContext,
-): string[] {
-  const reasons: string[] = [];
+): ReasonBuckets {
+  const spotify: string[] = [];
+  const quiz: string[] = [];
+  const community: string[] = [];
   const { tasteVector, snapshot } = context;
   const artistKey = album.artist.toLowerCase();
 
   if (tasteVector && album.artistId && tasteVector.artistWeights[album.artistId] >= 0.7) {
-    reasons.push(`Related to your top artist ${album.artist}`);
+    spotify.push(`Related to your top artist ${album.artist}`);
   } else if (matchedArtist) {
-    reasons.push(`Related to your top artist ${matchedArtist.name}`);
+    spotify.push(`Related to your top artist ${matchedArtist.name}`);
   }
 
   const savedAlbum = snapshot?.savedAlbums.find((a) => a.id === album.id);
   if (savedAlbum) {
-    reasons.push("In your saved albums");
+    spotify.push("In your saved albums");
   } else if (
     snapshot?.savedAlbums.some(
       (a) => a.artistId === album.artistId || a.artist.toLowerCase() === artistKey,
@@ -215,7 +234,7 @@ function buildReasons(
       (a) => a.artistId === album.artistId || a.artist.toLowerCase() === artistKey,
     );
     if (similar) {
-      reasons.push(`Similar to ${similar.name} in your library`);
+      spotify.push(`Similar to ${similar.name} in your library`);
     }
   }
 
@@ -229,7 +248,7 @@ function buildReasons(
     const daysAgo =
       (Date.now() - new Date(recentPlay.playedAt).getTime()) / (1000 * 60 * 60 * 24);
     if (daysAgo <= RECENCY_DECAY_DAYS) {
-      reasons.push(`You've been playing a lot of ${album.artist} lately`);
+      spotify.push(`You've been playing a lot of ${album.artist} lately`);
     }
   }
 
@@ -238,7 +257,7 @@ function buildReasons(
     rec.wantCount !== null &&
     rec.wantCount < POPULAR_WANT_THRESHOLD
   ) {
-    reasons.push(`Deep cut from an artist you love long-term`);
+    spotify.push(`Deep cut from an artist you love long-term`);
   }
 
   const matchedDecade = profile.decades.find((d) => {
@@ -247,14 +266,14 @@ function buildReasons(
     return decade === parseInt(d.replace("s", ""), 10);
   });
   if (matchedDecade) {
-    reasons.push(`Fits your ${matchedDecade} era preference`);
+    quiz.push(`Fits your ${matchedDecade} era preference`);
   }
 
   const matchedGenre = profile.genres.find((g) =>
     rec.genres.some((rg) => rg.toLowerCase().includes(g.toLowerCase())),
   );
   if (matchedGenre) {
-    reasons.push(`Matches your ${matchedGenre} taste from the quiz`);
+    quiz.push(`Matches your ${matchedGenre} taste from the quiz`);
   }
 
   const matchedMood = profile.moods.find((mood) =>
@@ -263,11 +282,11 @@ function buildReasons(
     ),
   );
   if (matchedMood) {
-    reasons.push(`Has that ${matchedMood.toLowerCase()} feel you picked`);
+    quiz.push(`Has that ${matchedMood.toLowerCase()} feel you picked`);
   }
 
   if (rec.communityRating && rec.communityRating >= 4) {
-    reasons.push(
+    community.push(
       `Highly rated on Discogs (${rec.communityRating.toFixed(1)}/5)`,
     );
   } else if (
@@ -275,16 +294,49 @@ function buildReasons(
     rec.wantCount !== null &&
     rec.wantCount < POPULAR_WANT_THRESHOLD
   ) {
-    reasons.push("A lesser-known pressing, per your deep-cut preference");
+    // Deep-cut appetite is a quiz answer, even though want-count is community
+    // data — the *reason this pick qualifies* is the quiz preference.
+    quiz.push("A lesser-known pressing, per your deep-cut preference");
   } else if (rec.wantCount !== null && rec.wantCount >= POPULAR_WANT_THRESHOLD) {
-    reasons.push(`Wanted by ${rec.wantCount.toLocaleString()} collectors`);
+    community.push(`Wanted by ${rec.wantCount.toLocaleString()} collectors`);
   }
 
-  if (reasons.length === 0) {
-    reasons.push("Recommended based on your taste profile");
-  }
+  return { spotify, quiz, community };
+}
 
-  return reasons;
+/** Round-robins the three source buckets (spotify, quiz, community) into one
+ * list, so a source with many matches (typically Spotify — a connected user
+ * can rack up 4+ listening-history reasons) can't push every other source's
+ * reasons off the front. UI surfaces (poster cards) truncate hard to the
+ * first 1-2 entries, so *order* here is what determines what a user actually
+ * sees, not just what reasons exist. */
+export function interleaveReasons(buckets: ReasonBuckets): string[] {
+  const queues = [buckets.spotify, buckets.quiz, buckets.community].map((b) => [...b]);
+  const reasons: string[] = [];
+  let took = true;
+  while (took) {
+    took = false;
+    for (const queue of queues) {
+      const next = queue.shift();
+      if (next !== undefined) {
+        reasons.push(next);
+        took = true;
+      }
+    }
+  }
+  return reasons.length > 0 ? reasons : ["Recommended based on your taste profile"];
+}
+
+function buildReasons(
+  rec: Recommendation,
+  profile: TasteProfileData,
+  matchedArtist: SpotifyArtist | null,
+  album: SpotifyAlbum,
+  context: TasteContext,
+): string[] {
+  return interleaveReasons(
+    collectReasonBuckets(rec, profile, matchedArtist, album, context),
+  );
 }
 
 /** Collects de-duplicated similar-artist names for the user's top artists once

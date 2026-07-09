@@ -1,11 +1,20 @@
 import { getOffers } from "@/lib/offers/orchestrator";
-import type { Offer } from "@/lib/offers/types";
+import { hasAffiliateLink } from "@/lib/offers/affiliate";
+import type { Offer, OfferSource } from "@/lib/offers/types";
 import type { DiscogsRelease } from "@/lib/types";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatUsd } from "@/lib/commerce/pricing";
 import { cn } from "@/lib/utils";
 import { ExternalLink, ShieldCheck, Sparkles, Store } from "lucide-react";
+
+const SOURCE_LABELS: Record<OfferSource, string> = {
+  discogs: "Discogs",
+  "google-shopping": "Google Shopping",
+  ebay: "eBay",
+  shopify: "local shops",
+  walmart: "Walmart",
+};
 
 /**
  * "Where to buy" — the multi-source offer panel. Async Server Component streamed
@@ -19,7 +28,7 @@ export async function WhereToBuy({ release }: { release: DiscogsRelease }) {
 
   const contributing = sources
     .filter((s) => s.ok && s.count > 0)
-    .map((s) => (s.source === "google-shopping" ? "Google Shopping" : "Discogs"));
+    .map((s) => SOURCE_LABELS[s.source]);
 
   return (
     <Card className="stream-fade-in">
@@ -53,6 +62,12 @@ export async function WhereToBuy({ release }: { release: DiscogsRelease }) {
           <p className="text-xs text-muted">
             Prices from {contributing.join(" + ")}. Confirm condition &amp; shipping on the
             seller&apos;s site before buying.
+          </p>
+        )}
+        {hasAffiliateLink(offers) && (
+          <p className="text-[11px] text-muted/70">
+            Some links are affiliate links — we may earn a commission at no extra cost to
+            you.
           </p>
         )}
       </div>
@@ -100,6 +115,9 @@ function OfferRow({ offer, best }: { offer: Offer; best: boolean }) {
             <span className="inline-flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
               <Store className="h-3.5 w-3.5 shrink-0 text-muted" />
               {offer.sellerName ?? "Unknown seller"}
+            </span>
+            <span className="text-[10px] uppercase tracking-wide text-muted/70">
+              {SOURCE_LABELS[offer.source]}
             </span>
             <ConfidenceBadge tier={offer.matchTier} />
             {best && (

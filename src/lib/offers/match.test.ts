@@ -113,6 +113,20 @@ describe("scoreMatch", () => {
     const r = scoreMatch(blueLines, { title: "Radiohead - OK Computer Vinyl" });
     expect(r.tier).toBe("rejected");
   });
+
+  it("penalizes merch/replicas that mention the album (spike false positives)", () => {
+    const miniature = scoreMatch(
+      { ...blueLines, artist: "Nirvana", title: "Nevermind", upcs: [] },
+      { title: "Miniature Nirvana Nevermind Vinyl Record" },
+    );
+    const book = scoreMatch(
+      { ...blueLines, upcs: [] },
+      { title: "Ian Bourland - Massive Attack's Blue Lines (33 1/3)" },
+    );
+    expect(miniature.tier).toBe("rejected");
+    expect(book.tier).toBe("rejected");
+    expect(miniature.reason).toContain("non-record-penalized");
+  });
 });
 
 describe("classifyTier", () => {
@@ -125,8 +139,9 @@ describe("classifyTier", () => {
 });
 
 describe("google-shopping mapping", () => {
-  it("builds a UPC query when available, else artist+title+vinyl", () => {
-    expect(buildQuery(blueLines)).toBe("0724383900411");
+  it("builds a text query (UPC-as-query returns junk on Google Shopping)", () => {
+    // Text-first even when a UPC exists — see buildQuery for the spike finding.
+    expect(buildQuery(blueLines)).toBe("Massive Attack Blue Lines vinyl LP");
     expect(buildQuery({ ...blueLines, upcs: [] })).toBe(
       "Massive Attack Blue Lines vinyl LP",
     );

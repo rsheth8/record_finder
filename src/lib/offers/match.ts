@@ -82,6 +82,14 @@ function coverage(needle: string[], haystack: Set<string>): number {
 const WRONG_FORMAT = /\b(cd|compact disc|cassette|tape|digital|mp3|flac|streaming|dvd|blu-?ray)\b/i;
 const RIGHT_FORMAT = /\b(vinyl|lp|record|gatefold|180\s?-?\s?g)/i;
 
+// Products that carry the artist+title+"vinyl/record" tokens but AREN'T the
+// record: dollhouse-miniature replicas, the 33⅓ book series, posters, merch.
+// (Spike surfaced a $7 "Miniature Nirvana Nevermind Vinyl Record" and a
+// "Blue Lines (33 1/3)" book both scoring as likely matches.) Deliberately
+// narrow so it can't false-fire on real album/artist names.
+const NON_RECORD =
+  /\b(miniature|doll\s?house|funko|figurine|hardcover|paperback|33\s?1\/3|keychain|sticker|poster|t-?shirt|coffee mug|jigsaw|puzzle)\b/i;
+
 export function classifyTier(confidence: number): MatchTier {
   if (confidence >= 0.97) return "verified";
   if (confidence >= 0.75) return "likely";
@@ -119,6 +127,10 @@ export function scoreMatch(key: ReleaseKey, candidate: OfferCandidate): MatchRes
   // record we want — cap it hard so it can never outrank a real vinyl offer.
   if (wrongFormat) confidence = Math.min(confidence * 0.45, 0.45);
 
+  // Merch/replicas/books that merely mention the album — force below "possible".
+  const nonRecord = NON_RECORD.test(formatText);
+  if (nonRecord) confidence = Math.min(confidence * 0.2, 0.3);
+
   confidence = Math.max(0, Math.min(0.95, confidence));
 
   const parts: string[] = [];
@@ -126,6 +138,7 @@ export function scoreMatch(key: ReleaseKey, candidate: OfferCandidate): MatchRes
   parts.push(`title ${(albumCoverage * 100) | 0}%`);
   if (rightFormat) parts.push("vinyl-confirmed");
   if (wrongFormat) parts.push("wrong-format-penalized");
+  if (nonRecord) parts.push("non-record-penalized");
 
   return {
     confidence,

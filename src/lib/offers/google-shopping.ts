@@ -60,10 +60,16 @@ export function serpItemToOffer(item: SerpShoppingItem, key: ReleaseKey): Offer 
   };
 }
 
-/** Build the meta-search query: UPC is the strongest signal when we have one. */
+/**
+ * Build the meta-search query. Spike finding: querying Google Shopping by a raw
+ * UPC returns unrelated products (Google keyword-matches the digits — we saw
+ * facial tissues and Pokémon cards come back for real barcodes), while
+ * "artist title vinyl LP" returns clean vinyl offers. So this is text-first.
+ * (UPC-as-query stays the right move for GTIN-native APIs like eBay — that's a
+ * per-adapter decision, not a global one.)
+ */
 export function buildQuery(key: ReleaseKey): string {
-  if (key.upcs.length > 0) return key.upcs[0];
-  return `${key.artist} ${key.title} vinyl LP`.trim();
+  return `${key.artist} ${key.title} vinyl LP`.replace(/\s+/g, " ").trim();
 }
 
 export interface SearchOptions {

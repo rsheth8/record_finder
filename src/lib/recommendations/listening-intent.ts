@@ -41,7 +41,7 @@ export function collectCandidates(
   const now = Date.now();
   const byAlbum = new Map<string, NudgeCandidate>();
 
-  for (const { track, playedAt } of snapshot.recentlyPlayed) {
+  for (const { track, playedAt } of snapshot.recentlyPlayed ?? []) {
     const daysAgo = (now - new Date(playedAt).getTime()) / (1000 * 60 * 60 * 24);
     if (daysAgo > RECENCY_DECAY_DAYS) continue;
 
@@ -64,12 +64,16 @@ export function collectCandidates(
     if (byAlbum.has(albumId)) continue; // already qualifies via play count
     // A high-weight album not in recentlyPlayed still needs a name/artist —
     // look it up from savedTracks/topTracks so we have something to search.
-    const fromSaved = snapshot.savedTracks.find((t) => t.albumId === albumId);
+    const fromSaved = (snapshot.savedTracks ?? []).find(
+      (t) => t.albumId === albumId,
+    );
     const fromTop =
       fromSaved ??
-      [...snapshot.topTracks.short, ...snapshot.topTracks.medium, ...snapshot.topTracks.long].find(
-        (t) => t.albumId === albumId,
-      );
+      [
+        ...(snapshot.topTracks?.short ?? []),
+        ...(snapshot.topTracks?.medium ?? []),
+        ...(snapshot.topTracks?.long ?? []),
+      ].find((t) => t.albumId === albumId);
     if (!fromTop) continue;
     byAlbum.set(albumId, {
       albumId,

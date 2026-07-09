@@ -4,8 +4,11 @@ import {
   quizAffinityAdjustment,
   buildFeedbackAffinity,
   feedbackAffinityAdjustment,
+  buildQuizArtistAffinity,
+  quizArtistAffinityAdjustment,
   collectReasonBuckets,
   interleaveReasons,
+  hasSpotifyReason,
 } from "@/lib/recommendations/engine";
 import { deriveTopGenres } from "@/lib/spotify/client";
 import type {
@@ -51,7 +54,12 @@ describe("deriveTopGenres", () => {
 });
 
 describe("quizAffinityAdjustment", () => {
-  const neutralProfile = { moods: [], albumPreference: "balanced" as const, deepCutLevel: 50 };
+  const neutralProfile = {
+    moods: [],
+    albumPreference: "balanced" as const,
+    formatPreference: "either" as const,
+    deepCutLevel: 50,
+  };
 
   it("rewards mood overlap via genre tag hints", () => {
     const groovy = { genres: ["Funk"], formats: [], wantCount: null };
@@ -78,6 +86,24 @@ describe("quizAffinityAdjustment", () => {
     const profile = { ...neutralProfile, albumPreference: "singles" as const };
     expect(quizAffinityAdjustment(album, profile)).toBeLessThan(
       quizAffinityAdjustment(single, profile),
+    );
+  });
+
+  it("penalizes reissues when the user prefers original pressings", () => {
+    const original = { genres: [], formats: ["Vinyl", "LP"], wantCount: null };
+    const reissue = { genres: [], formats: ["Vinyl", "LP", "Reissue"], wantCount: null };
+    const profile = { ...neutralProfile, formatPreference: "originals" as const };
+    expect(quizAffinityAdjustment(reissue, profile)).toBeLessThan(
+      quizAffinityAdjustment(original, profile),
+    );
+  });
+
+  it("penalizes original pressings (lightly) when the user prefers reissues", () => {
+    const original = { genres: [], formats: ["Vinyl", "LP"], wantCount: null };
+    const reissue = { genres: [], formats: ["Vinyl", "LP", "Reissue"], wantCount: null };
+    const profile = { ...neutralProfile, formatPreference: "reissues" as const };
+    expect(quizAffinityAdjustment(original, profile)).toBeLessThan(
+      quizAffinityAdjustment(reissue, profile),
     );
   });
 
@@ -153,6 +179,49 @@ describe("buildFeedbackAffinity + feedbackAffinityAdjustment", () => {
   });
 });
 
+describe("buildQuizArtistAffinity + quizArtistAffinityAdjustment", () => {
+  const recognized = { owned: ["Owned Artist"], seenLive: ["Live Artist"] };
+
+  it("boosts an owned artist and case-insensitively matches", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    expect(quizArtistAffinityAdjustment("owned artist", affinity)).toBeGreaterThan(0);
+  });
+
+  it("weighs seeing an artist live above just owning them", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    expect(quizArtistAffinityAdjustment("Live Artist", affinity)).toBeGreaterThan(
+      quizArtistAffinityAdjustment("Owned Artist", affinity),
+    );
+  });
+
+  it("is neutral for an artist with no recognition signal", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    expect(quizArtistAffinityAdjustment("Unknown Artist", affinity)).toBe(0);
+  });
+
+  it("defaults to empty when recognizedArtists is omitted", () => {
+    const affinity = buildQuizArtistAffinity();
+    expect(quizArtistAffinityAdjustment("Owned Artist", affinity)).toBe(0);
+  });
+});
+
+describe("hasSpotifyReason", () => {
+  it("is true when a reason string is spotify-listening-derived", () => {
+    expect(hasSpotifyReason(["Related to your top artist Radiohead"])).toBe(true);
+    expect(hasSpotifyReason(["In your saved albums"])).toBe(true);
+  });
+
+  it("is false when every reason is quiz/community-derived", () => {
+    expect(
+      hasSpotifyReason(["Fits your 1990s era preference", "Wanted by 5,000 collectors"]),
+    ).toBe(false);
+  });
+
+  it("is false for an empty reasons array", () => {
+    expect(hasSpotifyReason([])).toBe(false);
+  });
+});
+
 describe("interleaveReasons", () => {
   it("round-robins across sources instead of exhausting one source first", () => {
     const out = interleaveReasons({
@@ -188,6 +257,7 @@ describe("collectReasonBuckets", () => {
     decades: ["1990s"],
     moods: ["Groovy"],
     albumPreference: "balanced",
+    formatPreference: "either",
     deepCutLevel: 50,
     completedAt: new Date(),
   };
@@ -249,5 +319,18 @@ describe("collectReasonBuckets", () => {
   it("produces no spotify reasons when there is no snapshot/taste-vector context (quiz-only path)", () => {
     const buckets = collectReasonBuckets(rec, profile, null, album, {});
     expect(buckets.spotify).toEqual([]);
+  });
+
+  it("buckets a recognized-artist match under quiz, preferring seen-live over owned", () => {
+    const owned = collectReasonBuckets(rec, profile, null, album, {
+      quizRecognizedArtists: { owned: ["Test Artist"], seenLive: [] },
+    });
+    expect(owned.quiz).toContain("You already own Test Artist on vinyl");
+
+    const seenLive = collectReasonBuckets(rec, profile, null, album, {
+      quizRecognizedArtists: { owned: ["Test Artist"], seenLive: ["Test Artist"] },
+    });
+    expect(seenLive.quiz).toContain("You told us you've seen Test Artist live");
+    expect(seenLive.quiz).not.toContain("You already own Test Artist on vinyl");
   });
 });

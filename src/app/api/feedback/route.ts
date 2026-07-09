@@ -4,8 +4,10 @@ import {
   setFeedback,
   removeFeedback,
   clearRecommendationCache,
+  logEvent,
 } from "@/lib/db/queries";
 import { getCurrentUserId } from "@/lib/identity";
+import { auth } from "@/lib/auth";
 import { feedbackSchema } from "@/lib/validation/feedback";
 
 export async function GET() {
@@ -32,6 +34,12 @@ export async function POST(request: NextRequest) {
 
   await setFeedback(userId, parsed.data);
   await clearRecommendationCache(userId);
+
+  const session = await auth();
+  await logEvent(userId, "feedback_given", {
+    signal: parsed.data.signal,
+    connected: Boolean(session?.accessToken),
+  });
 
   return NextResponse.json({ ok: true });
 }

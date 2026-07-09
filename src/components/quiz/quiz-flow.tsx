@@ -13,10 +13,12 @@ import {
   QUIZ_DECADES,
   QUIZ_MOODS,
   type AlbumPreference,
+  type FormatPreference,
   type QuizAlbumPreference,
   type QuizDecade,
   type QuizGenre,
   type QuizMood,
+  type QuizRecognizedArtists,
   type QuizSubGenres,
 } from "@/lib/types";
 import { QUIZ_SUB_GENRES } from "@/lib/quiz/sub-genres";
@@ -25,6 +27,7 @@ import {
   pickAlbumBattles,
   type AlbumBattlePair,
 } from "@/lib/quiz/album-battles";
+import { pickRecognizedArtists } from "@/lib/quiz/recognized-artists";
 import { cn } from "@/lib/utils";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -34,8 +37,10 @@ import {
   Disc3,
   Headphones,
   Music2,
+  Repeat,
   Sparkles,
   Swords,
+  Users,
   Waves,
 } from "lucide-react";
 
@@ -44,8 +49,10 @@ const STEPS = [
   "subGenres",
   "decades",
   "moods",
+  "recognizedArtists",
   "albumBattles",
   "albumPreference",
+  "formatPreference",
   "deepCut",
 ] as const;
 
@@ -54,8 +61,10 @@ const STEP_META = {
   subGenres: { icon: Disc3, label: "Sub-genres" },
   decades: { icon: Calendar, label: "Eras" },
   moods: { icon: Waves, label: "Moods" },
+  recognizedArtists: { icon: Users, label: "Artists" },
   albumBattles: { icon: Swords, label: "Album picks" },
   albumPreference: { icon: Headphones, label: "Listening" },
+  formatPreference: { icon: Repeat, label: "Pressings" },
   deepCut: { icon: Sparkles, label: "Discovery" },
 } as const;
 
@@ -149,9 +158,11 @@ export function QuizFlow({
     decades: QuizDecade[];
     moods: QuizMood[];
     albumPreference: AlbumPreference;
+    formatPreference?: FormatPreference;
     deepCutLevel: number;
     subGenres?: QuizSubGenres;
     albumPreferences?: QuizAlbumPreference[];
+    recognizedArtists?: QuizRecognizedArtists;
   } | null;
 }) {
   const router = useRouter();
@@ -163,6 +174,15 @@ export function QuizFlow({
   const [moods, setMoods] = useState<QuizMood[]>(initial?.moods ?? []);
   const [albumPreference, setAlbumPreference] = useState<AlbumPreference>(
     initial?.albumPreference ?? "balanced",
+  );
+  const [formatPreference, setFormatPreference] = useState<FormatPreference>(
+    initial?.formatPreference ?? "either",
+  );
+  const [ownedArtists, setOwnedArtists] = useState<string[]>(
+    initial?.recognizedArtists?.owned ?? [],
+  );
+  const [seenLiveArtists, setSeenLiveArtists] = useState<string[]>(
+    initial?.recognizedArtists?.seenLive ?? [],
   );
   const [deepCutLevel, setDeepCutLevel] = useState(initial?.deepCutLevel ?? 50);
   const [battleSelections, setBattleSelections] = useState<
@@ -183,6 +203,7 @@ export function QuizFlow({
   const [error, setError] = useState<string | null>(null);
 
   const battles = useMemo(() => pickAlbumBattles(genres, 3), [genres]);
+  const recognizedArtistPool = useMemo(() => pickRecognizedArtists(genres), [genres]);
 
   const step = STEPS[stepIndex];
   const progress = ((stepIndex + 1) / STEPS.length) * 100;
@@ -198,6 +219,18 @@ export function QuizFlow({
     [battles, battleSelections],
   );
 
+  function toggleOwned(artist: string) {
+    setOwnedArtists((prev) =>
+      prev.includes(artist) ? prev.filter((a) => a !== artist) : [...prev, artist],
+    );
+  }
+
+  function toggleSeenLive(artist: string) {
+    setSeenLiveArtists((prev) =>
+      prev.includes(artist) ? prev.filter((a) => a !== artist) : [...prev, artist],
+    );
+  }
+
   async function save(completed: boolean): Promise<boolean> {
     setSaving(true);
     setError(null);
@@ -211,9 +244,11 @@ export function QuizFlow({
           decades,
           moods,
           albumPreference,
+          formatPreference,
           deepCutLevel,
           subGenres,
           albumPreferences,
+          recognizedArtists: { owned: ownedArtists, seenLive: seenLiveArtists },
           completed,
         }),
       });
@@ -356,6 +391,56 @@ export function QuizFlow({
             </>
           )}
 
+          {step === "recognizedArtists" && (
+            <>
+              <CardTitle>Know these artists?</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                Tell us who you already own on vinyl or have seen live — the strongest
+                signal we can get.
+              </CardDescription>
+              <div className="space-y-2">
+                {recognizedArtistPool.map((artist) => {
+                  const owned = ownedArtists.includes(artist);
+                  const seenLive = seenLiveArtists.includes(artist);
+                  return (
+                    <div
+                      key={artist}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3"
+                    >
+                      <span className="font-medium text-foreground">{artist}</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleOwned(artist)}
+                          className={cn(
+                            "pressable focus-ring rounded-full border px-3 py-1.5 text-xs",
+                            owned
+                              ? "border-accent bg-accent-muted text-accent"
+                              : "border-border text-muted hover:border-accent/50 hover:text-foreground",
+                          )}
+                        >
+                          Own on vinyl
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleSeenLive(artist)}
+                          className={cn(
+                            "pressable focus-ring rounded-full border px-3 py-1.5 text-xs",
+                            seenLive
+                              ? "border-accent bg-accent-muted text-accent"
+                              : "border-border text-muted hover:border-accent/50 hover:text-foreground",
+                          )}
+                        >
+                          Seen live
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
           {step === "albumBattles" && (
             <>
               <CardTitle>Quick album picks</CardTitle>
@@ -398,6 +483,40 @@ export function QuizFlow({
                     className={cn(
                       "pressable focus-ring w-full rounded-xl border p-4 text-left",
                       albumPreference === value
+                        ? "border-accent bg-accent-muted"
+                        : "border-border hover:border-accent/50",
+                    )}
+                  >
+                    <div className="font-medium text-foreground">{label}</div>
+                    <div className="text-sm text-muted">{desc}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {step === "formatPreference" && (
+            <>
+              <CardTitle>Original pressings or reissues?</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                Originals can run pricier and harder to find — reissues are often
+                cheaper and easier to grab in great condition.
+              </CardDescription>
+              <div className="space-y-3">
+                {(
+                  [
+                    ["originals", "Original pressings only", "I want the record as it first came out"],
+                    ["either", "No strong preference", "Whatever pressing sounds and looks good"],
+                    ["reissues", "Reissues are great", "I'm happy with a modern repress"],
+                  ] as const
+                ).map(([value, label, desc]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFormatPreference(value)}
+                    className={cn(
+                      "pressable focus-ring w-full rounded-xl border p-4 text-left",
+                      formatPreference === value
                         ? "border-accent bg-accent-muted"
                         : "border-border hover:border-accent/50",
                     )}

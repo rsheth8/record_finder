@@ -1,0 +1,2 @@
+ALTER TABLE `quiz_responses` ADD `recognized_artists` text DEFAULT '{"owned":[],"seenLive":[]}' NOT NULL;--> statement-breakpoint
+ALTER TABLE `taste_profile` ADD `format_preference` text DEFAULT 'either' NOT NULL;

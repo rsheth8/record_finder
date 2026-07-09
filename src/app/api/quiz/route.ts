@@ -30,11 +30,12 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = await getOrCreateUserId();
-  const { subGenres, albumPreferences, ...profileData } = parsed.data;
+  const { subGenres, albumPreferences, recognizedArtists, ...profileData } = parsed.data;
 
   await saveQuizResponses(userId, {
     albumPreferences,
     subGenres,
+    recognizedArtists,
   });
 
   const profile = await saveTasteProfile(userId, profileData);
@@ -53,5 +54,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ profile, responses: { albumPreferences, subGenres } });
+  return NextResponse.json({
+    profile,
+    responses: { albumPreferences, subGenres, recognizedArtists },
+  });
 }

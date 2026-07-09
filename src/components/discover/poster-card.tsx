@@ -16,12 +16,16 @@ export function PosterCard({
   variant = "grid",
   isDragging = false,
   featured = false,
+  onNavigate,
 }: {
   rec: Recommendation;
   className?: string;
   variant?: "carousel" | "grid";
   isDragging?: boolean;
   featured?: boolean;
+  /** Fired on a real (non-drag) navigation click — used by callers that want
+   * to instrument click-through (e.g. the search results funnel). */
+  onNavigate?: (rec: Recommendation) => void;
 }) {
   const reducedMotion = useReducedMotion();
   const marketplace = rec.marketplace;
@@ -48,7 +52,11 @@ export function PosterCard({
       <Link
         href={`/album/${rec.discogsReleaseId}`}
         onClick={(e) => {
-          if (isDragging) e.preventDefault();
+          if (isDragging) {
+            e.preventDefault();
+            return;
+          }
+          onNavigate?.(rec);
         }}
         className={cn(
           "poster-sleeve relative block select-none overflow-hidden rounded-lg bg-surface",

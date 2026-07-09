@@ -37,11 +37,59 @@ describe("searchCatalog", () => {
     expect(fetchSpy.mock.calls[0][0] as string).toContain("page=50");
   });
 
+  it("routes a genre that's a real Discogs top-level genre through genre=", async () => {
+    const fetchSpy = mockFetchOnce({ results: [], pagination: { page: 1, pages: 1, items: 0, per_page: 10 } });
+    const searchCatalog = await freshSearchCatalog();
+    await searchCatalog("nirvana", 1, { genre: "Rock" });
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toContain("genre=Rock");
+    expect(url).not.toContain("style=");
+  });
+
+  it("routes a genre that's actually a Discogs style through style=", async () => {
+    const fetchSpy = mockFetchOnce({ results: [], pagination: { page: 1, pages: 1, items: 0, per_page: 10 } });
+    const searchCatalog = await freshSearchCatalog();
+    await searchCatalog("nirvana", 1, { genre: "Alternative" });
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toContain(encodeURIComponent("Alternative Rock"));
+    expect(url).not.toContain("genre=Alternative");
+  });
+
+  it("appends the decade as a keyword token rather than a real filter param", async () => {
+    const fetchSpy = mockFetchOnce({ results: [], pagination: { page: 1, pages: 1, items: 0, per_page: 10 } });
+    const searchCatalog = await freshSearchCatalog();
+    await searchCatalog("nirvana", 1, { decade: "1990s" });
+    const url = fetchSpy.mock.calls[0][0] as string;
+    expect(url).toContain(encodeURIComponent("nirvana 1990"));
+  });
+
+  it("maps each sort option to real Discogs sort/sort_order params", async () => {
+    const cases: [import("@/lib/discogs/client").SearchSortOption, string][] = [
+      ["most_wanted", "sort=want&sort_order=desc"],
+      ["newest", "sort=year&sort_order=desc"],
+      ["oldest", "sort=year&sort_order=asc"],
+      ["artist_az", "sort=artist&sort_order=asc"],
+    ];
+    for (const [sort, expected] of cases) {
+      const fetchSpy = mockFetchOnce({ results: [], pagination: { page: 1, pages: 1, items: 0, per_page: 10 } });
+      const searchCatalog = await freshSearchCatalog();
+      await searchCatalog("nirvana", 1, { sort });
+      expect(fetchSpy.mock.calls[0][0] as string).toContain(expected);
+    }
+  });
+
+  it("omits the sort param entirely for relevance (Discogs' own default ranking)", async () => {
+    const fetchSpy = mockFetchOnce({ results: [], pagination: { page: 1, pages: 1, items: 0, per_page: 10 } });
+    const searchCatalog = await freshSearchCatalog();
+    await searchCatalog("nirvana", 1, { sort: "relevance" });
+    expect(fetchSpy.mock.calls[0][0] as string).not.toContain("sort=");
+  });
+
   it("falls back to a sane pagination shape when Discogs omits the envelope", async () => {
     mockFetchOnce({ results: [{ id: 1, title: "A - B" }] });
     const searchCatalog = await freshSearchCatalog();
     const { pagination } = await searchCatalog("nirvana", 3);
-    expect(pagination).toEqual({ page: 3, pages: 1, items: 1, perPage: 10 });
+    expect(pagination).toEqual({ page: 3, pages: 1, items: 1, perPage: 24 });
   });
 
   it("maps search results into Recommendation shape with empty reasons", async () => {

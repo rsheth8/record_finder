@@ -7,6 +7,7 @@ export const tasteProfile = sqliteTable("taste_profile", {
   decades: text("decades").notNull().default("[]"),
   moods: text("moods").notNull().default("[]"),
   albumPreference: text("album_preference").notNull().default("balanced"),
+  formatPreference: text("format_preference").notNull().default("either"),
   deepCutLevel: integer("deep_cut_level").notNull().default(50),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -36,6 +37,7 @@ export const quizResponses = sqliteTable("quiz_responses", {
   userId: text("user_id").notNull(),
   albumPreferences: text("album_preferences").notNull().default("[]"),
   subGenres: text("sub_genres").notNull().default("{}"),
+  recognizedArtists: text("recognized_artists").notNull().default('{"owned":[],"seenLive":[]}'),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({
   userIdx: uniqueIndex("quiz_responses_user_idx").on(t.userId),
@@ -161,4 +163,21 @@ export const offerCache = sqliteTable("offer_cache", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({
   releaseIdx: uniqueIndex("offer_cache_release_idx").on(t.discogsReleaseId),
+}));
+
+// Raw success-metrics event log (recommendation generation, feedback, sync,
+// search, reservations, email clicks) — see lib/db/queries.ts's `logEvent()`
+// and lib/analytics/metrics.ts for the pure aggregation functions that turn
+// these rows into the success metrics from the roadmap. Intentionally a flat
+// event log rather than per-metric counter tables, since which metrics matter
+// is still evolving.
+export const analyticsEvents = sqliteTable("analytics_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  type: text("type").notNull(),
+  metadata: text("metadata").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  typeIdx: index("analytics_events_type_idx").on(t.type),
+  userIdx: index("analytics_events_user_idx").on(t.userId),
 }));

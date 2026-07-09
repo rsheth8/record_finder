@@ -12,10 +12,18 @@ import {
   priceHistory,
   localShops,
   offerCache,
+  analyticsEvents,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
 import { parseJson } from "@/lib/utils";
 import { normalizeRecommendations } from "@/lib/recommendations/normalize";
+import {
+  computeReasonCitationRate,
+  computeFeedbackLikeRate,
+  computeSyncToFirstRecommendation,
+  computeFunnel,
+  type AnalyticsEventRow,
+} from "@/lib/analytics/metrics";
 import type {
   TasteProfileData,
   SpotifyArtist,
@@ -35,6 +43,8 @@ import type {
   FeedbackSignal,
   QuizAlbumPreference,
   QuizSubGenres,
+  FormatPreference,
+  QuizRecognizedArtists,
 } from "@/lib/types";
 
 export async function getTasteProfileFromDb(
@@ -53,6 +63,7 @@ export async function getTasteProfileFromDb(
     decades: parseJson<QuizDecade[]>(row.decades, []),
     moods: parseJson<QuizMood[]>(row.moods, []),
     albumPreference: row.albumPreference as AlbumPreference,
+    formatPreference: row.formatPreference as FormatPreference,
     deepCutLevel: row.deepCutLevel,
     completedAt: row.completedAt,
   };
@@ -76,6 +87,7 @@ export async function saveTasteProfileToDb(
     decades: JSON.stringify(data.decades),
     moods: JSON.stringify(data.moods),
     albumPreference: data.albumPreference,
+    formatPreference: data.formatPreference,
     deepCutLevel: data.deepCutLevel,
     completedAt: data.completed ? now : existing?.completedAt ?? null,
     updatedAt: now,
@@ -219,9 +231,12 @@ function deriveTopAlbumsFromTracks(tracks: SpotifyTrack[]): SpotifyAlbum[] {
   return albums;
 }
 
+const EMPTY_RECOGNIZED_ARTISTS: QuizRecognizedArtists = { owned: [], seenLive: [] };
+
 export async function getQuizResponses(userId: string): Promise<{
   albumPreferences: QuizAlbumPreference[];
   subGenres: QuizSubGenres;
+  recognizedArtists: QuizRecognizedArtists;
 } | null> {
   await ensureDb();
   const row = await db
@@ -234,18 +249,27 @@ export async function getQuizResponses(userId: string): Promise<{
   return {
     albumPreferences: parseJson<QuizAlbumPreference[]>(row.albumPreferences, []),
     subGenres: parseJson<QuizSubGenres>(row.subGenres, {}),
+    recognizedArtists: parseJson<QuizRecognizedArtists>(
+      row.recognizedArtists,
+      EMPTY_RECOGNIZED_ARTISTS,
+    ),
   };
 }
 
 export async function saveQuizResponses(
   userId: string,
-  data: { albumPreferences: QuizAlbumPreference[]; subGenres: QuizSubGenres },
+  data: {
+    albumPreferences: QuizAlbumPreference[];
+    subGenres: QuizSubGenres;
+    recognizedArtists: QuizRecognizedArtists;
+  },
 ) {
   await ensureDb();
   const values = {
     userId,
     albumPreferences: JSON.stringify(data.albumPreferences),
     subGenres: JSON.stringify(data.subGenres),
+    recognizedArtists: JSON.stringify(data.recognizedArtists),
     updatedAt: new Date(),
   };
   await db
@@ -694,9 +718,10 @@ export async function getUserReservations(
   return rows as ReservationRecord[];
 }
 
-/** How many collectors have reserved a concierge queue spot for this release —
- * a social/gamification scarcity signal, not a real inventory count (there is
- * no cap; a reservation never blocks another). See `orders`' doc comment. */
+/** How many collectors have reserved a concierge queue spot for this release.
+ * Capped per `reservationCapForRelease()` (`lib/commerce/reservations.ts`) —
+ * a real, enforced limit as of the reservation-scarcity cap, not just a
+ * count. See `orders`' doc comment. */
 export async function getReservationCountForRelease(
   discogsReleaseId: number,
 ): Promise<number> {
@@ -982,4 +1007,77 @@ export async function cacheOffers(
     .insert(offerCache)
     .values(values)
     .onConflictDoUpdate({ target: offerCache.discogsReleaseId, set: values });
+}
+
+// --- Analytics events ---------------------------------------------------
+// Success-metrics instrumentation. See lib/analytics/metrics.ts for the pure
+// aggregation functions these wrap, and lib/analytics/types.ts for the fixed
+// set of event types loggable here.
+
+/** Never throws — a logging failure must not break the feature it's
+ * instrumenting (same philosophy as the Resend email wrapper: log and move
+ * on). */
+export async function logEvent(
+  userId: string,
+  type: string,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await ensureDb();
+    await db.insert(analyticsEvents).values({
+      userId,
+      type,
+      metadata: JSON.stringify(metadata),
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    console.error("[analytics] logEvent failed:", error);
+  }
+}
+
+export async function getAnalyticsEvents(types?: string[]): Promise<AnalyticsEventRow[]> {
+  await ensureDb();
+  const rows =
+    types && types.length > 0
+      ? await db.select().from(analyticsEvents).where(inArray(analyticsEvents.type, types)).all()
+      : await db.select().from(analyticsEvents).all();
+
+  return rows.map((r) => ({
+    userId: r.userId,
+    type: r.type,
+    metadata: parseJson<Record<string, unknown>>(r.metadata, {}),
+    createdAt: r.createdAt,
+  }));
+}
+
+/** Convenience wrappers combining the fetch above with the pure aggregation
+ * in lib/analytics/metrics.ts, for a script/REPL to call directly without
+ * knowing which event types feed which metric. No dashboard UI calls these
+ * yet — see handoff.md. */
+export async function getReasonCitationRate() {
+  return computeReasonCitationRate(await getAnalyticsEvents(["recommendations_generated"]));
+}
+
+export async function getFeedbackLikeRateBySource() {
+  return computeFeedbackLikeRate(await getAnalyticsEvents(["feedback_given"]));
+}
+
+export async function getSyncToFirstRecommendationStats() {
+  return computeSyncToFirstRecommendation(
+    await getAnalyticsEvents(["spotify_sync_completed", "recommendations_generated"]),
+  );
+}
+
+export async function getSearchToReservationFunnel() {
+  return computeFunnel(
+    await getAnalyticsEvents(["search_performed", "search_result_click", "reservation_created"]),
+    ["search_performed", "search_result_click", "reservation_created"],
+  );
+}
+
+export async function getEmailToReservationFunnel() {
+  return computeFunnel(
+    await getAnalyticsEvents(["price_drop_email_click", "reservation_created"]),
+    ["price_drop_email_click", "reservation_created"],
+  );
 }

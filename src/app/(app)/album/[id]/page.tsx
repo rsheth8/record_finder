@@ -5,6 +5,7 @@ import {
   getReleaseFeedback,
   getCachedRecommendations,
   getReservationCountForRelease,
+  logEvent,
 } from "@/lib/db/queries";
 import { AlbumDetail } from "@/components/album/album-detail";
 import { auth } from "@/lib/auth";
@@ -16,12 +17,16 @@ export const dynamic = "force-dynamic";
 
 export default async function AlbumPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ src?: string }>;
 }) {
   const { id } = await params;
   const releaseId = parseInt(id, 10);
   if (isNaN(releaseId)) notFound();
+
+  const { src } = await searchParams;
 
   const release = await getRelease(releaseId);
   if (!release) notFound();
@@ -57,6 +62,10 @@ export default async function AlbumPage({
       ]);
     } catch (error) {
       console.error("[album] profile lookups failed:", error);
+    }
+
+    if (src === "price-drop-email") {
+      await logEvent(userId, "price_drop_email_click", { discogsReleaseId: releaseId });
     }
   }
 

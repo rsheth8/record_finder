@@ -29,7 +29,7 @@ export function buildPriceDropEmail(items: PriceDropItem[]): {
 
   const rows = items
     .map((item) => {
-      const url = `${SITE_URL}/album/${item.discogsReleaseId}`;
+      const url = `${SITE_URL}/album/${item.discogsReleaseId}?src=price-drop-email`;
       const off = percentOff(item.oldPrice, item.newPrice);
       return { item, url, off };
     })

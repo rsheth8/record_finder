@@ -1,5 +1,7 @@
 import type {
   DiscogsRelease,
+  QuizDecade,
+  QuizGenre,
   Recommendation,
   RecommendationMarketplace,
   SearchPagination,
@@ -14,6 +16,7 @@ import {
   type DiscogsSearchResult,
 } from "@/lib/recommendations/match";
 import { convertToUsd, roundUsd } from "@/lib/commerce/currency";
+import { GENRE_DISCOGS_PARAM } from "@/lib/discogs/genre-map";
 
 const DISCOGS_API = "https://api.discogs.com";
 
@@ -359,26 +362,72 @@ function searchResultToSearchHit(r: DiscogsSearchResult): Recommendation {
   };
 }
 
-// Kept small: each result costs one more 1-req/sec Discogs call to enrich with
-// price/rating (see enrichRecommendations), so a search page trades breadth for
-// a tolerable wait rather than a 20+ item page taking 20+ seconds.
-const SEARCH_PER_PAGE = 10;
+// The base /database/search call itself costs the same one Discogs request
+// regardless of per_page (up to Discogs' own ceiling), so this can be
+// generous — the real cost lives downstream in enrichment (see
+// SEARCH_ENRICH_LIMIT in the search route), not here.
+const SEARCH_PER_PAGE = 24;
 const SEARCH_PAGE_MAX = 50;
+
+export type SearchSortOption = "relevance" | "most_wanted" | "newest" | "oldest" | "artist_az";
+
+/** Maps a UI sort choice to Discogs' real `sort`/`sort_order` query params —
+ * each verified live against the real API (not assumed from docs): `sort=want`
+ * genuinely orders by descending want count catalog-wide, `sort=year` by
+ * release year, `sort=artist` alphabetically. "Relevance" omits the param
+ * entirely (Discogs' own default ranking for a keyword query). */
+function sortParams(sort: SearchSortOption): string {
+  switch (sort) {
+    case "most_wanted":
+      return "&sort=want&sort_order=desc";
+    case "newest":
+      return "&sort=year&sort_order=desc";
+    case "oldest":
+      return "&sort=year&sort_order=asc";
+    case "artist_az":
+      return "&sort=artist&sort_order=asc";
+    case "relevance":
+    default:
+      return "";
+  }
+}
+
+export interface SearchCatalogFilters {
+  genre?: QuizGenre;
+  /** Discogs has no decade-range search param (only an exact `year`), so this
+   * is approximated the same way `browseByGenreDecade` does it — appended as
+   * a keyword token to the query text rather than a precise filter. */
+  decade?: QuizDecade;
+  sort?: SearchSortOption;
+}
 
 /** Full-catalog vinyl search for the /search page — unlike searchVinylRelease
  * (which validates a single best match for scoring a known artist+title pair),
- * this returns a raw, paginated results list for an arbitrary free-text query. */
+ * this returns a raw, paginated results list for an arbitrary free-text query.
+ * `filters.genre`/`filters.sort` are real Discogs search params, so they
+ * correctly narrow/order the *entire* catalog result set (and its pagination),
+ * not just the current page. */
 export async function searchCatalog(
   query: string,
   page = 1,
+  filters: SearchCatalogFilters = {},
 ): Promise<{ results: Recommendation[]; pagination: SearchPagination }> {
   const clampedPage = Math.min(Math.max(1, page), SEARCH_PAGE_MAX);
-  const q = encodeURIComponent(query.trim());
+  const decadeToken = filters.decade ? filters.decade.replace("s", "") : "";
+  const q = encodeURIComponent(`${query.trim()} ${decadeToken}`.trim());
+
+  const genreParam = filters.genre
+    ? `&${GENRE_DISCOGS_PARAM[filters.genre].field}=${encodeURIComponent(
+        GENRE_DISCOGS_PARAM[filters.genre].value,
+      )}`
+    : "";
+  const sort = sortParams(filters.sort ?? "relevance");
+
   const data = await discogsFetch<{
     results?: DiscogsSearchResult[];
     pagination?: { page: number; pages: number; items: number; per_page: number };
   }>(
-    `/database/search?q=${q}&type=release&format=Vinyl&page=${clampedPage}&per_page=${SEARCH_PER_PAGE}`,
+    `/database/search?q=${q}&type=release&format=Vinyl${genreParam}${sort}&page=${clampedPage}&per_page=${SEARCH_PER_PAGE}`,
   );
 
   return {

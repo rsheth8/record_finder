@@ -7,6 +7,7 @@ import {
   scoreDiscogsMatch,
   pickBestMatch,
   isFullAlbum,
+  isReissue,
   type DiscogsSearchResult,
 } from "@/lib/recommendations/match";
 
@@ -124,5 +125,17 @@ describe("isFullAlbum", () => {
 
   it("is false when the format is unknown", () => {
     expect(isFullAlbum(["Vinyl"])).toBe(false);
+  });
+});
+
+describe("isReissue", () => {
+  it("is true when formats mention reissue, repress, or remaster", () => {
+    expect(isReissue(["Vinyl", "LP", "Reissue"])).toBe(true);
+    expect(isReissue(["Vinyl (LP, Repress)"])).toBe(true);
+    expect(isReissue(["Vinyl (LP, Remastered)"])).toBe(true);
+  });
+
+  it("is false for a plain pressing with no reissue markers", () => {
+    expect(isReissue(["Vinyl", "LP"])).toBe(false);
   });
 });

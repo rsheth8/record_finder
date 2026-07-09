@@ -116,3 +116,15 @@ export function isFullAlbum(formats: string[]): boolean {
   }
   return lower.some((f) => f.includes("lp") || f.includes("album"));
 }
+
+/** True when a release's formats indicate a reissue/repress/remaster rather
+ * than an original pressing — used to honor the "originals vs. reissues"
+ * quiz preference. Absence of any reissue marker is treated as an original,
+ * since that's how Discogs formats descriptions work (an original pressing
+ * just doesn't carry a "Reissue"-style descriptor). */
+export function isReissue(formats: string[]): boolean {
+  const lower = formats.map((f) => f.toLowerCase());
+  return lower.some(
+    (f) => f.includes("reissue") || f.includes("repress") || f.includes("remaster"),
+  );
+}

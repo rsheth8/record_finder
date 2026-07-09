@@ -1,6 +1,6 @@
 # Record Finder — Handoff
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## What this is
 
@@ -111,8 +111,9 @@ Stored in `spotify_snapshot.taste_vector` (JSON).
 
 The last two used to be Spotify-path-only; quiz-only recommendations only used them for reason text, never for ranking. Both are now extracted into shared, independently-tested functions in `engine.ts` so quiz-only users' quiz answers and feedback clicks actually move the needle.
 
-**Finalize / score normalization** (`src/lib/recommendations/finalize.ts`) — `finalizeScores(recs, deepCutLevel, weights)` blends three batch-relative components into a 0–100 score:
-- **Relevance** (default weight 0.6): the raw per-candidate score above, min-max normalized within the batch
+**Finalize / score normalization** (`src/lib/recommendations/finalize.ts`) — `finalizeScores(recs, deepCutLevel, weights)` blends four batch-relative components into a 0–100 score:
+- **Relevance** (default weight 0.4): the raw per-candidate `score` above — everything except quiz signals (artist/album affinity, saved-album, recent rotation, Last.fm similarity, community rating bump, feedback) — min-max normalized within the batch
+- **Quiz fit** (0.2): `quizScore` — decade, quiz-genre, sub-genre, mood, format, deep-cut appetite, album-battle preference — min-max normalized **separately** from relevance. See "Quiz vs. Spotify weight rebalance" below for why this is a dedicated component rather than folded into relevance.
 - **Rating** (0.3): Bayesian-shrunk community rating (`ratingScore` — prior 3.8, confidence 50 votes, so a 4.9 from 5 voters doesn't outrank a 4.6 from thousands)
 - **Desirability** (0.1): log-scaled want-count, **direction flips on `deepCutLevel`** — mainstream-leaning users get a popularity-favoring signal, deep-cut lovers get an obscurity-favoring one, neutral at 50. (Before this, desirability always rewarded popularity, actively fighting a deep-cut lover's own stated preference.)
 
@@ -164,9 +165,9 @@ Four features built entirely on data/infra already in place (no new schema, no n
 
 Full-catalog Discogs vinyl search, guest-accessible (no quiz, no sign-in) — first-class entry point per the "best vinyl searching site" north star, distinct from Discover's filter box (which only searches within a signed-in user's ~20-25 personalized recommendations). There was previously a dead, unused API route at this path that this replaced; nothing in the UI called it before.
 
-- **`searchCatalog(query, page)`** (`src/lib/discogs/client.ts`) — hits `/database/search` with relevance-default sort (not `sort=want`, so a literal title/artist search surfaces the actual match first), page size fixed small (10) since every result costs one more Discogs call to enrich under the shared 1-req/sec throttle. Returns results in the existing `Recommendation` shape (via a private `searchResultToSearchHit`, parallel to but distinct from `searchResultToRecommendation` — a search hit has no personalized "reason") plus a `SearchPagination` envelope (`src/lib/types.ts`).
+- **`searchCatalog(query, page)`** (`src/lib/discogs/client.ts`) — hits `/database/search` with relevance-default sort (not `sort=want`, so a literal title/artist search surfaces the actual match first), page size 24 (`SEARCH_PER_PAGE` — see "Fixing 'limited results'" below for why this isn't as small as it used to be). Returns results in the existing `Recommendation` shape (via a private `searchResultToSearchHit`, parallel to but distinct from `searchResultToRecommendation` — a search hit has no personalized "reason") plus a `SearchPagination` envelope (`src/lib/types.ts`).
 - **`GET /api/discogs/search`** — rewritten (previously raw Discogs JSON passthrough); validates and clamps the query, enriches the page with `enrichRecommendations()` (price/rating), and flags fair value on that page-batch — batch-relative by default, upgraded to real historical fair value wherever price history exists (see "Price history & deals" below). `maxDuration = 30`, matching `/api/recommendations`'s precedent for a rate-limited Discogs pass.
-- **`/search` page + `SearchFeed`** (`src/components/search/search-feed.tsx`) — input, `VinylLoader` (~10-12s for a full page with price/rating — a conscious latency-for-richness tradeoff, not an oversight), `DiscoverGrid` reused as-is for results, prev/next pagination. No filters, no genre grouping, no view-mode toggle — deliberately thinner than Discover.
+- **`/search` page + `SearchFeed`** (`src/components/search/search-feed.tsx`) — input, `VinylLoader` (~13s for a full page — see "Fixing 'limited results'" below for the current enrich-a-subset tradeoff, updated from the original all-enriched design), `DiscoverGrid` reused as-is for results, prev/next pagination, genre/decade/sort filters (see "Search filters" below). No genre-row grouping or view-mode toggle — deliberately thinner than Discover.
 - **Nav** — added to both `app-nav.tsx` (desktop) and `mobile-nav.tsx` (now 5 tabs) as a permanent, always-visible entry point, and to Discover's empty-filter-result state as a "Search all vinyl for '...'" bridge link.
 - **Known gap, accepted for v1:** no rate limiting or abuse protection exists for this now-public route beyond the shared Discogs throttle (which protects the app's Discogs quota, not against one client monopolizing it). Quiz-gating was incidentally serving as informal abuse protection before this. If abuse becomes a real problem, add a per-IP/session soft limit (no Redis/KV in this repo today — would need an in-memory or DB-backed sliding window).
 
@@ -301,6 +302,98 @@ Replaced the offer panel's in-process `Map` cache (lost on every serverless cold
 - **Verified end-to-end, unconfounded**: cleared the cache table, ran `getOffers()` twice in a row on a release untouched anywhere else this session — 115ms (cold) → 1ms (cached), exact `fetchedAt` and content equality. (Also verified, in passing, that raw SerpApi latency is genuinely ~150-200ms per query — the "16s" page-load times seen earlier in this session are the *unrelated*, pre-existing Discogs 1-req/sec throttle used by `SimilarReleases`/`ComparePressings`, not this panel; don't mistake total album-page load time for this cache's own performance.)
 - **`getOffers(release, { fresh: true })`** bypasses the cache and overwrites the row — proven with a content-based test (cache a `numForSale: 5` result, then `fresh: true` with `numForSale: 9` for the same release id, assert the new value both in the return value and in the persisted row) rather than a timing-based one, since two real `Date.now()` calls can legitimately land in the same rounded second.
 
+## Production crash fix + recommendation-reason transparency (2026-07-09)
+
+- **Production bug**: `record-finder-nine.vercel.app` crashed on load (`TypeError: Cannot read properties of undefined (reading 'length')`) for Spotify-connected sessions only. Root cause: `parseJson<T>()` (`src/lib/utils.ts`) called `JSON.parse(value)` without checking for `null` first — `JSON.parse(null)` coerces to `JSON.parse("null")`, which is valid JSON and successfully returns `null` instead of throwing, silently bypassing the `fallback` argument. A DB column that's genuinely SQL `NULL` (an old production row predating some field, per the migration-history quirk noted below) came through as JS `null` and this array field then hit `.length` downstream. Fixed with an explicit `value == null` guard before parsing; regression-locked in `src/lib/utils.test.ts`. On top of this, further hardening was added directly in `src/lib/db/queries.ts` (`parseJsonArray<T>()`, `normalizeTopByTerm()`) to coerce non-array parse results to the fallback throughout `getSpotifySnapshot()`/`saveSpotifySnapshot()`.
+- Diagnosed via `vercel logs --json <url>` (exact error digest match) rather than guessing; the underlying `JSON.parse(null)` quirk was independently confirmed with a bare Node one-liner before touching app code.
+- Also discovered the production alias wasn't tracking the branch's latest deploy (it had been manually pointed at an older deployment tagged `preview`, not `production`, at some earlier point) — fixed via `vercel alias set <new-deployment-url> record-finder-nine.vercel.app`. Worth checking after future pushes: a push to this branch does not by itself guarantee the live alias updates.
+
+- **Recommendation-reason transparency**: user's actual complaint after the algorithm-optimization request was "I can't tell what the quiz is doing vs my Spotify recommendations" — not a request to change scoring weights yet. Root-caused to two compounding UI/logic bugs, both now fixed (weight rebalancing itself is explicitly deferred — see below):
+  1. `PosterCard` (`discover/poster-card.tsx`) only ever rendered `rec.reasons[0]`.
+  2. `buildReasons()` (`recommendations/engine.ts`) pushed reasons in a fixed priority order that front-loaded Spotify-derived checks (top-artist, saved-album, recent-play, core-artist) before quiz-derived ones (decade, genre, mood) — so `reasons[0]` was almost always Spotify-flavored for a connected user even when quiz signals also applied underneath.
+  - Fix: `buildReasons()` split into two new exported pure functions — `collectReasonBuckets()` (categorizes each reason string into `spotify`/`quiz`/`community` buckets; same exact wording as before) and `interleaveReasons()` (round-robins across the three buckets instead of concatenating them, falls back to `"Recommended based on your taste profile"` when all are empty). `PosterCard` now renders `rec.reasons.slice(0, 2)` as two independently line-clamped lines instead of one.
+  - Note: the deep-cut-preference reason ("A lesser-known pressing, per your deep-cut preference") is bucketed under `quiz`, not `community`, even though it depends on want-count data — because the reason it's explaining is the user's quiz deep-cut-slider answer.
+  - 7 new tests in `engine-helpers.test.ts` (241 total project tests). Verified live: regenerated real quiz-only recommendations via `/api/quiz` + `/api/recommendations`, confirmed reasons interleave correctly in the raw API response, and visually confirmed on `/discover` (desktop + 375px mobile) that poster cards show two distinct reason lines with no layout breakage. The Spotify-connected interleave path itself is unit-tested only, not live-verified (no Spotify OAuth session available in this environment).
+  - Committed as `c0e609c`, pushed to `discover-differentiation-features`.
+
+### Quiz vs. Spotify weight rebalance (2026-07-09, later)
+
+Phase 2 of the same request — after shipping visibility, the user chose to move straight into rebalancing (didn't wait to observe first, contrary to the original "both, in that order" plan; asked "let's move onto the next thing" and picked this from a menu of options).
+
+- **Problem**: even after the visibility fix, quiz signals were diluted rather than weighted. `finalizeScores()`'s `relevance` term was one combined `score` number where Spotify-derived deltas (artist affinity up to +30, album affinity +25, saved-album +20, recent-play +12, Last.fm similarity +12) had much higher density and variance than quiz-derived deltas (decade +15 flat, mood up to +24, genre matches, deep-cut ±8) — batch min-max normalization means whichever signal has the widest spread across a batch dominates the normalized 0–1 relevance score, regardless of the nominal point values. For a Spotify-connected user, every candidate is already Spotify-seeded, so this systematically drowned out quiz answers even where they applied.
+- **Fix**: split the single raw `score` into two tracked components in `src/lib/recommendations/engine.ts` — `score` (Spotify listening-history + community + feedback signals) and a new `quizScore` field (decade, quiz-genre — split out of the old combined `genreOverlap` into `quizGenreOverlap`/`spotifyGenreOverlap` — sub-genre, mood/format/deep-cut via `quizAffinityAdjustment`, album-battle preference). Both `scoreCandidates()` (Spotify path) and `getQuizOnlyRecommendations()` (quiz-only path) now populate `quizScore` independently of `score`.
+- `finalizeScores()` (`finalize.ts`) gained a fourth weighted, independently batch-normalized component, `quizFit` (`quizFitScores()`, same min-max treatment as relevance). New `DEFAULT_FINALIZE_WEIGHTS`: relevance 0.4 (was 0.6), quizFit 0.2 (new — carved entirely out of relevance's old share, rating/desirability untouched), rating 0.3, desirability 0.1. This guarantees quiz answers move the final score by a fixed, real proportion for every Spotify-connected user, rather than a proportion that depends on how much variance happens to exist in that batch's Spotify signals.
+- Added `Recommendation.quizScore?: number` (`src/lib/types.ts`).
+- 3 new tests in `finalize.test.ts` (isolating quizFit via zeroed other weights, undefined-quizScore-defaults-to-0, and a comparative test proving the default weights close a relevance gap more than a config with `quizFit: 0` does) — 244 total project tests, all green, alongside clean `tsc`/lint.
+- Verified live (quiz-only path only — no Spotify OAuth session available here, same caveat as the visibility fix): regenerated real recommendations, confirmed scores stay a valid 0–100 range and reasons still interleave correctly, screenshotted `/discover` grid view showing intact two-line reasons and price/rating badges.
+- **Not yet verified**: the actual before/after ranking shift for a real Spotify-connected account — the user should check their own Discover picks and confirm quiz answers now visibly move which albums surface, and report back if the 0.2 `quizFit` weight feels like too much or too little.
+
+## Reservation scarcity cap + rounding out the quiz (2026-07-09, later)
+
+Three items pulled from "Recommended next steps" in one batch, per user request ("let's do all of those").
+
+**Reservation scarcity cap** — `getReservationCountForRelease()` used to be display-only (no cap, a reservation never blocked). Now enforced:
+- `reservationCapForRelease(numForSale)` (`src/lib/commerce/reservations.ts`, pure, tested) — `min(numForSale, 5)`. Capped at 5 regardless of listing volume so the cap stays meaningful on releases with hundreds of copies for sale; tied to real Discogs inventory below that.
+- `POST /api/reservations` checks the cap **before** deducting credits (409 `"All concierge queue spots for this release are taken"` if full) — a real block, not just a warning after the fact.
+- `ReserveWithCreditsButton` shows a disabled "Full" / "Fully reserved" state once `reservationCount >= cap`, and handles a race-condition 409 from the server the same way. Also fixed a pre-existing gap while touching this file: the non-compact modal never rendered the "N collectors already reserved a spot" badge at all (only the compact variant did) — now both do.
+- Known limitation, accepted: the cap check and the credit deduction aren't in one DB transaction, so two concurrent requests at the last spot could both pass the check — not addressed, consistent with this app's existing pragmatic (non-transactional) reservation flow.
+
+**Quiz round-out** — the two deferred quiz steps from the roadmap, both now feeding real scoring signals, not just collected and ignored:
+- **Artist recognition grid** (`src/lib/quiz/recognized-artists.ts` — curated ~3 well-known artists per genre, same hand-curated pattern as `album-battles.ts`) — a new "Know these artists?" step where the user marks artists as "Own on vinyl" and/or "Seen live" (independent toggles, not mutually exclusive). Stored in `quiz_responses.recognized_artists` (migration `0008_loud_hammerhead.sql`) as `{ owned: string[], seenLive: string[] }`. Scored via new `buildQuizArtistAffinity()`/`quizArtistAffinityAdjustment()` in `engine.ts` — seen-live weighted slightly above owned (+12 vs +10; a harder, more deliberate fandom signal) — folded into `quizScore` (not `score`), consistent with the quiz/Spotify split above. Also surfaces as a reason ("You already own X on vinyl" / "You told us you've seen X live"), seen-live taking priority when both apply.
+- **Format preference** (originals vs. reissues) — a new single-select step alongside the existing listening-style (`albumPreference`) step, stored as `taste_profile.format_preference` (same migration). New `isReissue(formats)` in `match.ts` (checks for "reissue"/"repress"/"remaster" in Discogs format descriptions, mirroring the existing `isFullAlbum()` pattern) feeds a new branch in `quizAffinityAdjustment()`: originals-lovers take a real penalty (-10) on a reissue; reissue-lovers take a lighter penalty (-3) on an original (an original pressing isn't really a downgrade, so the mismatch matters less).
+- Both `scoreCandidates()` (Spotify path) and `getQuizOnlyRecommendations()` (quiz-only path) now thread `recognizedArtists` through; `load.ts` passes `quizResponses?.recognizedArtists` to all three `getQuizOnlyRecommendations()` call sites.
+- 261 total tests (up from 248), clean `tsc`/lint. Verified live: stepped through the full 9-step quiz in-browser (was 7), confirmed "Step 1 of 9" through "Step 9 of 9", toggled artist recognition and format preference, and confirmed via the raw `GET /api/quiz` response that both persisted and round-tripped correctly (`formatPreference: "reissues"`, `recognizedArtists: { owned: [...], seenLive: [...] }`).
+- **Not yet verified**: the actual scoring effect on a real Spotify-connected account's Discover picks (same caveat as the weight-rebalance work above — no Spotify OAuth session available in this environment).
+
+## Success-metrics instrumentation (2026-07-09, later)
+
+The third item from this batch — turns the roadmap's "Success metrics" section (previously "not instrumented yet") into real, queryable data. Deliberately a raw event log + pure aggregation functions, **no dashboard UI** (not requested, and premature before it's clear which of these metrics end up mattering).
+
+- **`analytics_events` table** (migration `0009_bitter_famine.sql`) — flat log: `userId`, `type`, `metadata` (JSON), `createdAt`, indexed on both `type` and `userId`. A flat log rather than per-metric counter tables, since which metrics matter is still evolving and a log can be re-aggregated any way later without a schema change.
+- **`logEvent(userId, type, metadata)`** (`db/queries.ts`) — wrapped in try/catch, never throws (same philosophy as the Resend email wrapper: a logging failure must never break the feature it's instrumenting).
+- **Pure aggregation** (`src/lib/analytics/metrics.ts`, fully unit-tested, no DB access) — `computeReasonCitationRate()`, `computeFeedbackLikeRate()`, `computeSyncToFirstRecommendation()`, and a generic N-stage `computeFunnel()` (used for both the search and email funnels rather than writing two near-identical functions). DB-facing wrappers (`getReasonCitationRate()`, `getFeedbackLikeRateBySource()`, `getSyncToFirstRecommendationStats()`, `getSearchToReservationFunnel()`, `getEmailToReservationFunnel()` in `queries.ts`) fetch + call these — a script/REPL can call them directly today; there's no route exposing them yet.
+- **Instrumented events**:
+  - `recommendations_generated` (`load.ts`, after a real generation — not on cache hits) — `{ source: "spotify"|"quiz-only", count, withSpotifyReason }`. `withSpotifyReason` comes from a new `hasSpotifyReason(reasons)` in `engine.ts` (checks a fixed list of the exact prefixes `collectReasonBuckets` pushes into its `spotify` bucket) — this is what "% of recommendations with specific reasons citing saved/recent/core taste" is computed from.
+  - `spotify_sync_completed` (`load.ts`, right after a successful sync) — `{ durationMs, artistCount }`.
+  - `feedback_given` (`POST /api/feedback`) — `{ signal, connected }`, `connected` from a live `auth()` check, not inferred — feeds the Spotify-connected-vs-quiz-only like-rate split.
+  - `search_performed` (`GET /api/discogs/search`, page 1 only — pagination shouldn't inflate the funnel's "searched" count) — `{ resultCount }`.
+  - `search_result_click` (client-side — `PosterCard` gained an optional `onNavigate` prop, threaded through `DiscoverGrid`'s new `onItemClick` prop; only `SearchFeed` wires it up, Discover doesn't, so the funnel stays search-specific) — fires a non-blocking `navigator.sendBeacon` (fetch-with-`keepalive` fallback) to the new `POST /api/analytics/event`.
+  - `reservation_created` (`POST /api/reservations`, on success) — `{ discogsReleaseId }`.
+  - `price_drop_email_click` — the price-drop email's album links now carry `?src=price-drop-email` (`email/price-drop-alert.ts`); the album page route reads it server-side and logs when present.
+- **`POST /api/analytics/event`** — the only client-reachable logging path, validated against a small `CLIENT_LOGGABLE_EVENT_TYPES` allowlist (`lib/analytics/types.ts`, currently just `search_result_click`) so a client can't forge a `reservation_created` or similar server-trusted event.
+- 12 new unit tests (`metrics.test.ts`) + 3 new integration tests (`queries.test.ts`, real DB round-trip) — 277 total tests, clean `tsc`/lint.
+- **Verified live end-to-end** (not just unit-tested): ran a real search, clicked a result, and confirmed both `search_performed` and `search_result_click` landed in the dev SQLite file under the *same* guest id (proving the funnel is actually joinable); regenerated quiz-only recommendations and confirmed `recommendations_generated` logged `{"source":"quiz-only","count":22,"withSpotifyReason":0}`; submitted feedback and confirmed `{"signal":"like","connected":false}`.
+- **Not yet verified**: the Spotify-connected variants of these events (`connected: true`, `source: "spotify"`) and the email-click path — all three need either a real Spotify OAuth session or a real Resend send, neither available in this environment.
+- **Sync completion rate** (one of the two things named under that roadmap bullet) is deliberately *not* computed — there's no reliable "sync attempted" denominator for syncs that failed before this instrumentation existed, and a sync failure already surfaces to the user via the existing `degraded` error path, so it's not silently invisible. Time-to-first-recommendation is the half of that metric this ships.
+
+## Fixing "limited results" on Discover and Search (2026-07-09, later)
+
+User-reported: Discover felt thin (few picks to browse) and Search felt capped. Root-caused to three separate, compounding issues — not one bug — across generation, display, and pagination.
+
+- **The real bug: `groupRecommendations()` was starving its own rows.** (`src/lib/recommendations/group.ts`) The "Top picks" row took the 12 highest-scoring picks *out of the shared pool* before genre/decade/deep-cut rows were built. With a total batch of only ~22-25 recs, Top Picks alone consumed over half the pool, so most other rows fell below `MIN_ROW_ITEMS` (3) and simply didn't render — the feed collapsed to "Top picks" + a thin "More to explore," no matter how much was actually generated. Fix: Top Picks is now a highlight reel, not a claim — its items stay eligible for genre/decade/deep-cut rows too (an item can headline "Top picks" *and* appear in its "Rock" row, same as any Netflix-style browse UI). The catch-all "More to explore" row still excludes Top Picks specifically, so it doesn't just silently re-list the same 12 items. One new test (`group.test.ts`) locks in both halves: top-picks *can* overlap with a thematic row, but every other row still partitions the pool exclusively.
+- **Raised the generation pool sizes**, since there was real headroom once the DB-level cause above was ruled out as a compounding contributor:
+  - Quiz-only: `browseByGenreDecade()` call in `getQuizOnlyRecommendations()` raised 25→40. This is *cheap* — the function's Discogs call count is fixed at up to 6 (one per genre×decade combo) regardless of the limit; only the downstream per-pick enrichment call count scales.
+  - Spotify-connected: `fetchDiscoveryAlbums()` limit 30→40, `scoreCandidates()`'s candidate slice 25→35. This *is* a real Discogs-call cost increase (one call per candidate match, unavoidable). `/api/recommendations`'s `maxDuration` raised 60→90 for headroom.
+  - **Verified live**: quiz-only generation went from ~22 recs to **36**, completing in ~40-43s (well under the new 90s ceiling, up from a prior ~25-30s at the lower cap). Discover then rendered **Top picks (12), Rock (12), Indie (12), Indie Rock (11)** — every row fully populated, vs. the old "Top picks + maybe one thin row" experience.
+  - **Not verified**: the Spotify-connected path's actual timing/count at the new caps — no OAuth session available in this environment. The math checks out (documented inline at the `maxDuration` change) but hasn't been observed end-to-end.
+- **Decoupled Search's result count from its enrichment cost.** `SEARCH_PER_PAGE` was hardcoded to 10 purely to bound per-item Discogs enrichment cost (1 call each, serialized). But the base `/database/search` call itself costs the same *one* Discogs request regardless of `per_page` (up to Discogs' own ceiling) — there was no reason the visible result count had to equal the enriched count. Fix: `SEARCH_PER_PAGE` raised to 24; a new `SEARCH_ENRICH_LIMIT` (12) in `/api/discogs/search/route.ts` fully enriches only the first 12 (price/rating/fair-value), leaving the rest as browsable cards with title/artist/cover/year/genre/want-count (all free from the search call itself) but no price badge — clicking through still fully enriches that one release via the album page's own `getRelease()` call. Order is preserved (a straight slice + concat, not a re-sort).
+  - **Verified live**: a "beatles" search now returns 24 results (was 10) in ~13s (about the same wait as before, since only 12 are enriched — confirmed the 13th+ results in the DOM render with "View album" instead of a price badge, exactly as designed).
+- 1 new unit test (`group.test.ts` rewritten), 1 test fixture update (`discogs/client.test.ts`'s stale `perPage: 10` expectation) — 277 total tests, clean `tsc`/lint throughout.
+
+## Search filters — genre, decade, sort (2026-07-09, later)
+
+Follow-up to the "limited results" fix: user wanted Search to be "smarter... with filters and everything." Scoped deliberately to what's actually correct for a server-paginated, full-catalog search — not a straight port of Discover's filter UI.
+
+- **Why Discover's filter model doesn't transfer directly**: `DiscoverFilterState` (`min rating`, `max price`, `for sale only`, `good value only`, `format`) all filter an already-fully-enriched, fully-fetched, in-memory array — correct because Discover's ~36 picks are *all* enriched before reaching the client. Search's catalog can be 25,000+ items across 400+ Discogs-paginated pages, with only the first 12 of each 24-item page enriched (see the "limited results" fix above) — filtering by price/rating client-side would silently only ever look at 12 items out of tens of thousands, giving a badly incomplete result with no way to signal that to the user. So these were **not** added to Search; only filters Discogs' own search API genuinely supports catalog-wide were.
+- **Verified live against the real Discogs API before writing any UI** (not assumed from docs): `genre=`, `style=`, `year=`, `sort=`+`sort_order=` all confirmed as real, correctly-filtering/ordering params. Crucially, discovered that **many of this app's `QUIZ_GENRES` values aren't valid Discogs `genre=` values at all** — `genre=Alternative`, `genre=Punk`, `genre=Metal`, `genre=Indie`, `genre=R%26B` all silently returned **0 results** (they only exist in Discogs' separate, larger `style` taxonomy — e.g. "Alternative Rock", "Heavy Metal", "Rhythm & Blues" — while `genre=` is a small ~15-tag top-level list). Also confirmed Discogs has **no decade-range param** — only exact `year=`.
+- **`GENRE_DISCOGS_PARAM`** (`src/lib/discogs/genre-map.ts`, new) — the verified mapping from every `QuizGenre` to the correct real field (`genre` or `style`) and value, so the UI can keep using this app's existing genre vocabulary while routing correctly under the hood. Unit-tested for completeness (every quiz genre has an entry) and for the specific genre/style split.
+- **`searchCatalog()`** (`src/lib/discogs/client.ts`) gained an optional third `filters` param: `{ genre?, decade?, sort? }`. `genre` and `sort` become real query params (narrow/order the whole catalog, pagination included); `decade` is appended as a keyword token to the query text — same approximate pattern `browseByGenreDecade` already uses, since there's no real decade param to hook into. `SearchSortOption` (`relevance | most_wanted | newest | oldest | artist_az`) maps to verified `sort=want|year|artist` + `sort_order` combos.
+- **`SearchFilters`** (`src/components/search/search-filters.tsx`, new) — a lighter filter bar than `DiscoverFilters`: sort dropdown + genre pills (all 18 `QUIZ_GENRES`, single-select) + decade pills (single-select). Same expand/collapse-with-active-count pattern as Discover for visual consistency. Wired into `SearchFeed`: changing a filter resets to page 1 and re-runs the search (only once a query has actually been submitted).
+- **Fixed a real bug found via live testing, not spotted in review**: rapid filter clicks (a genre pill then a decade pill then the sort dropdown, in quick succession) fired multiple overlapping searches with no cancellation, all queuing on the shared 1-req/sec Discogs throttle — one test sequence took **37 seconds** to settle because five stale requests were still in flight ahead of the current one, any of which could have resolved last and clobbered the UI with stale results. Fixed with an `AbortController` in `SearchFeed`: each new search aborts the previous in-flight one first. Doesn't reduce Discogs quota usage (the aborted server-side call may still run to completion), but eliminates the stale-response race — verified live: a clean single filter change now resolves in ~13s again, same as an unfiltered search.
+- 12 new unit tests (`genre-map.test.ts` + `client.test.ts` additions) — 285 total tests, clean `tsc`/lint.
+- **Verified live end-to-end**: expanded filters, selected Jazz + 1960s + Most wanted on a "beatles" search, confirmed the exact expected query string (`genre=Jazz&decade=1960s&sort=most_wanted`) hit the API each time via server logs; confirmed toggling a pill off correctly dropped just that param while keeping the others.
+- **Known limitation, by design, not an oversight**: no min-rating/max-price/for-sale/good-value filters on Search (see the "why" above) — those remain Discover-only, where the full result set is genuinely enriched.
+
 ## UI/UX craft pass (2026-07-08, later)
 
 A visual/motion-only polish pass — no behavior, data-flow, or business-logic changes. Highlights:
@@ -330,12 +423,13 @@ Added tests for previously-uncovered pure logic: `group.ts` (including a regress
 
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0007_thick_lake.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0009_bitter_famine.sql`.
 
 | Table | Purpose |
 |-------|---------|
-| `taste_profile` | Quiz summary (genres, decades, moods, album preference, deep-cut level) |
-| `quiz_responses` | Sub-genres + album battle preferences |
+| `taste_profile` | Quiz summary (genres, decades, moods, album preference, format preference, deep-cut level) |
+| `quiz_responses` | Sub-genres + album battle preferences + recognized artists (`{owned, seenLive}`) |
+| `analytics_events` | Success-metrics event log — see "Success-metrics instrumentation" |
 | `spotify_snapshot` | Full listening snapshot + derived `taste_vector` |
 | `recommendation_cache` | Scored `Recommendation[]`, 1h expiry |
 | `recommendation_feedback` | like / dislike / own / hide per release |
@@ -376,6 +470,7 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Home listening-intent row (Suspense-streamed) | `src/components/home/listening-intent-row.tsx` |
 | Discover cards / carousels | `src/components/discover/poster-card.tsx`, `carousel-row.tsx`, `discover-grid.tsx` |
 | Catalog search | `src/lib/discogs/client.ts` (`searchCatalog`), `src/components/search/search-feed.tsx`, `src/app/(app)/search/page.tsx` |
+| Search filters + genre/style mapping | `src/components/search/search-filters.tsx`, `src/lib/discogs/genre-map.ts` |
 | Album back-navigation (context-aware) | `src/components/album/back-link.tsx` |
 | Price history / real fair value | `src/lib/db/queries.ts` (price-history functions), `src/lib/recommendations/fair-value.ts` (`applyHistoricalFairValue`) |
 | Price-drop alerts | `src/lib/commerce/price-alerts.ts` (pure logic), `src/lib/email/price-drop-alert.ts` (template), `src/lib/email/send.ts` (Resend wrapper), `src/app/api/cron/snapshot-prices/route.ts` |
@@ -386,13 +481,14 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 |-------|-------|
 | `GET/POST /api/quiz` | Save taste profile + quiz responses |
 | `GET/POST /api/spotify/top` | Sync listening snapshot (POST = force) |
-| `GET/POST /api/recommendations` | Load/regenerate picks (`maxDuration: 60`) |
+| `GET/POST /api/recommendations` | Load/regenerate picks (`maxDuration: 90`) |
 | `POST /api/feedback` | Recommendation signals; clears cache |
 | `GET/POST/DELETE /api/wishlist` | Auth required; `POST` now also captures `priceAtAdd` |
-| `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` for that release |
+| `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` and `cap` for that release; 409 once the reservation cap is reached |
 | `GET /api/discogs/search` | Full-catalog vinyl search, guest-accessible, no auth (`maxDuration: 30`) |
 | `GET /api/discogs/release`, `/marketplace` | Release, marketplace proxies |
 | `GET /api/cron/snapshot-prices` | Vercel Cron only — `Authorization: Bearer $CRON_SECRET` (`maxDuration: 120`) |
+| `POST /api/analytics/event` | Client-side analytics beacon; only accepts `CLIENT_LOGGABLE_EVENT_TYPES` (currently just `search_result_click`) |
 
 ## Environment
 
@@ -428,11 +524,8 @@ npm run db:push
 | Item | Notes |
 |------|-------|
 | **Playlist import** | Needs `playlist-read-private` OAuth scope; existing users must re-auth |
-| **Artist recognition grid** | "Own on vinyl / seen live" quiz step from roadmap |
-| **Vinyl format preference** | Original pressings vs reissues quiz step |
 | **ML / embeddings** | Still rule-based heuristic scoring; no learned weights |
-| **A/B metrics** | No instrumentation for like-rate or reason-quality success metrics yet |
-| **Hard-capped reservations** | Reservation scarcity currently only shows a count ("N collectors reserved a spot"); there's no cap and a reservation never blocks. If real scarcity is wanted, decide between a flat per-release constant or `min(numForSale, X)` before implementing |
+| **Metrics dashboard UI** | Success metrics are instrumented and queryable (see "Success-metrics instrumentation" above) but there's no page/route surfacing them yet — only callable from a script/REPL |
 | **Cross-browser-engine testing** | UI/mobile verification in this repo has been done via the Chromium-based preview tooling only (viewport resizing for mobile/tablet); Firefox/Safari rendering has not been separately verified |
 | **Verified email sending domain** | Price-drop alerts work end-to-end locally, but Resend (like any transactional email provider) requires a verified sending domain before it can email real users — currently only the developer's own Resend-verified address can receive mail |
 | **Live Vercel deployment** | The cron schedule in `vercel.json` only actually fires once deployed with `CRON_SECRET` set in the project's env vars — this is still a local-dev-only project |
@@ -443,26 +536,31 @@ North star: best vinyl-searching site + best deals on vinyl. Roughly in priority
 
 1. ~~**Full-catalog search**~~ — done, see "Catalog search" above.
 2. ~~**Real price-history fair value + price-drop email alerts**~~ — done, see "Price history & deals" above. Two follow-ups worth doing before this compounds much further: verify a sending domain with Resend (real user emails don't work without it), and deploy to Vercel with `CRON_SECRET` set so the daily snapshot job actually starts running.
-3. **Instrument the success metrics that already exist on paper** (see "Success metrics" below) — including for Search (search → click-through → reservation funnel) and for the new alerts (email → click-through → reservation). Every scoring/ranking/alerting decision is a guess without this data.
-4. **Round out the quiz** with the two deferred steps (artist recognition grid, vinyl format preference) — cheap, additive, and both directly feed scoring signals that already exist in the engine.
-5. **Decide reservation scarcity's teeth.** Right now it's a count with no cap — fine as a nudge, but if the product goal is real urgency, decide between a flat per-release constant or `min(numForSale, X)` and implement the cap.
+3. ~~**Instrument the success metrics that already exist on paper**~~ — done, see "Success-metrics instrumentation" above. Next natural step here (not started): a real dashboard/route surfacing these instead of script-only access, once there's enough data accumulated for the numbers to be meaningful.
+4. ~~**Round out the quiz**~~ — done, see "Reservation scarcity cap + rounding out the quiz" above.
+5. ~~**Decide reservation scarcity's teeth**~~ — done (capped at `min(numForSale, 5)`), see "Reservation scarcity cap + rounding out the quiz" above.
 6. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
-7. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (3) show the heuristic approach actually plateauing.
+7. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (3) accumulate enough data to show the heuristic approach actually plateauing.
 
 ## Known constraints
 
 - **Spotify rate limits** — sync batches parallel fetches; 24h snapshot TTL; 1h recommendation cache
 - **Discogs rate limit** — global 1 req/sec throttle (`discogsThrottle`); any new per-item enrichment (e.g. compare-pressings pricing) must be designed around this — see why `getMasterVersions()` deliberately skips per-version price fetches, and why the price-snapshot cron caps itself at 100 releases/run
-- **Discogs is slow** — scoring does up to 25 vinyl lookups; generation is client-triggered to avoid serverless timeouts
+- **Discogs is slow** — scoring does up to 35 vinyl lookups (Spotify path) or up to 40 enrichment calls (quiz-only path); generation is client-triggered to avoid serverless timeouts, `maxDuration: 90` on `/api/recommendations`
 - **Guest wishlist** — requires sign-in; quiz and recommendations work for guests
-- **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut fit, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
+- **Quiz-only path** — no longer purely positional (`50 - index`): now gets weighted-sample browse variety, mood/format/deep-cut/reissue fit, artist-recognition affinity, and feedback signals like the Spotify path does, but still lacks the richer Spotify-derived taste-vector signals (artist/album affinity, recent rotation, Last.fm similarity)
 - **Real fair value only covers wishlisted releases** — see "Price history & deals" above; everything else still gets the batch-relative badge
 - **Local SQLite under concurrency** — the local file (both `record_finder.db` and the vitest throwaway db) now sets `PRAGMA busy_timeout` on connect so concurrent writers wait instead of throwing `SQLITE_BUSY` (see "Polish & hardening pass" above); WAL mode was deliberately not also enabled, since the mode switch itself needs a brief exclusive lock and caused the exact startup race it would be meant to fix
 - **`/search` is public with no abuse protection** — the route is guest-accessible by design, but nothing beyond the shared `discogsThrottle` limits one client from monopolizing the app's whole Discogs request budget (quiz-gating incidentally did this for Discover before). See "Catalog search" above.
 - **Price-drop emails need a verified sending domain** — see "Price history & deals" above and the new Deferred entry.
+- **Search filter clicks abort client-side but not server-side** — `SearchFeed`'s `AbortController` (see "Search filters" above) stops a stale response from clobbering the UI, but the aborted request's Discogs calls already in flight on the server keep running to completion regardless. Rapid-fire filter changes still cost real Discogs quota per click; a debounce on filter changes (not just the abort) would be the next step if this becomes a real problem.
 
-## Success metrics (from roadmap — not instrumented yet)
+## Success metrics (from roadmap — instrumented 2026-07-09)
 
-- % of recommendations with specific reasons citing saved/recent/core taste
-- Feedback `like` rate: Spotify-connected vs quiz-only
-- Sync completion rate and time-to-first-recommendation after connect
+See "Success-metrics instrumentation" above for the how. No dashboard UI yet — call these from a script/REPL:
+
+- `getReasonCitationRate()` — % of recommendations with specific reasons citing saved/recent/core taste
+- `getFeedbackLikeRateBySource()` — feedback `like` rate: Spotify-connected vs quiz-only
+- `getSyncToFirstRecommendationStats()` — time-to-first-recommendation after connect (sync *completion rate* deliberately not computed — see caveat above)
+- `getSearchToReservationFunnel()` — search → click-through → reservation
+- `getEmailToReservationFunnel()` — price-drop email click → reservation

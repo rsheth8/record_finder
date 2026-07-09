@@ -28,9 +28,11 @@ export default async function QuizPage() {
                 decades: profile.decades,
                 moods: profile.moods,
                 albumPreference: profile.albumPreference,
+                formatPreference: profile.formatPreference,
                 deepCutLevel: profile.deepCutLevel,
                 subGenres: responses?.subGenres ?? {},
                 albumPreferences: responses?.albumPreferences ?? [],
+                recognizedArtists: responses?.recognizedArtists ?? { owned: [], seenLive: [] },
               }
             : null
         }

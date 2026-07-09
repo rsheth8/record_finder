@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { getCurrentUserId } from "@/lib/identity";
 import { loadRecommendations } from "@/lib/recommendations/load";
 
-// Generation runs a rate-limited, serial Discogs pass that can take ~25s+.
-// Raise the serverless function ceiling so it isn't killed mid-flight.
-export const maxDuration = 60;
+// Generation runs a rate-limited, serial Discogs pass — one call per
+// candidate match plus one per final enriched pick. Raised alongside the
+// candidate-pool size bump (more picks to choose from = more Discogs calls);
+// 90s gives headroom for the Spotify-connected path's worst case (~35
+// match calls + ~30 enrichment calls) without hitting the ceiling mid-flight.
+export const maxDuration = 90;
 
 export async function POST() {
   const userId = await getCurrentUserId();

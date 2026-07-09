@@ -5,9 +5,11 @@ import {
   ensureUser,
   getCreditBalance,
   getReservationCountForRelease,
+  logEvent,
 } from "@/lib/db/queries";
 import { getMarketplaceStats } from "@/lib/discogs/client";
 import { usdToCredits } from "@/lib/commerce/pricing";
+import { reservationCapForRelease } from "@/lib/commerce/reservations";
 import { createOrderSchema } from "@/lib/validation/orders";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -31,6 +33,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "This release is not currently for sale" },
       { status: 400 },
+    );
+  }
+
+  const cap = reservationCapForRelease(marketplace.numForSale);
+  const countBeforeReserving = await getReservationCountForRelease(discogsReleaseId);
+  if (countBeforeReserving >= cap) {
+    return NextResponse.json(
+      {
+        error: "All concierge queue spots for this release are taken",
+        reservationCount: countBeforeReserving,
+        cap,
+      },
+      { status: 409 },
     );
   }
 
@@ -65,5 +80,7 @@ export async function POST(request: NextRequest) {
   const newBalance = await getCreditBalance(session.user.id);
   const reservationCount = await getReservationCountForRelease(discogsReleaseId);
 
-  return NextResponse.json({ reservation, balance: newBalance, reservationCount });
+  await logEvent(session.user.id, "reservation_created", { discogsReleaseId });
+
+  return NextResponse.json({ reservation, balance: newBalance, reservationCount, cap });
 }

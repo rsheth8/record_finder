@@ -9,6 +9,7 @@ import type {
   TasteProfileData,
   TasteVector,
   QuizAlbumPreference,
+  QuizRecognizedArtists,
   WishlistItem,
 } from "@/lib/types";
 import { browseByGenreDecade, searchVinylRelease } from "@/lib/discogs/client";
@@ -17,7 +18,7 @@ import { getSimilarArtists, isLastfmConfigured } from "@/lib/lastfm/client";
 import type { SimilarArtist } from "@/lib/lastfm/client";
 import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
 import { mapWithConcurrency } from "@/lib/utils/rate-limited-pool";
-import { isFullAlbum } from "@/lib/recommendations/match";
+import { isFullAlbum, isReissue } from "@/lib/recommendations/match";
 import type { StoredSpotifySnapshot } from "@/lib/db/queries";
 
 /** Quiz moods map to genre/tag hints (from MusicBrainz/Last.fm) so a mood
@@ -59,6 +60,7 @@ export interface TasteContext {
   similarArtists?: SimilarArtist[];
   quizAlbumPreferences?: QuizAlbumPreference[];
   quizSubGenres?: string[];
+  quizRecognizedArtists?: QuizRecognizedArtists;
 }
 
 function moodOverlap(albumGenres: string[], moods: QuizMood[]): number {
@@ -72,14 +74,17 @@ function moodOverlap(albumGenres: string[], moods: QuizMood[]): number {
   return matches;
 }
 
-/** Score delta from the three quiz signals that don't depend on Spotify
- * listening data — mood, album-vs-singles preference, and deep-cut appetite —
- * shared so both the Spotify-seeded and quiz-only recommendation paths apply
- * them consistently. (Quiz-only previously only used these for reason text,
- * never for ranking.) */
+/** Score delta from the quiz signals that don't depend on Spotify listening
+ * data — mood, album-vs-singles preference, originals-vs-reissues preference,
+ * and deep-cut appetite — shared so both the Spotify-seeded and quiz-only
+ * recommendation paths apply them consistently. (Quiz-only previously only
+ * used these for reason text, never for ranking.) */
 export function quizAffinityAdjustment(
   rec: Pick<Recommendation, "genres" | "formats" | "wantCount">,
-  profile: Pick<TasteProfileData, "moods" | "albumPreference" | "deepCutLevel">,
+  profile: Pick<
+    TasteProfileData,
+    "moods" | "albumPreference" | "formatPreference" | "deepCutLevel"
+  >,
 ): number {
   let delta = 0;
 
@@ -89,6 +94,13 @@ export function quizAffinityAdjustment(
     delta -= 12;
   } else if (profile.albumPreference === "singles" && isFullAlbum(rec.formats)) {
     delta -= 4;
+  }
+
+  const reissue = isReissue(rec.formats);
+  if (profile.formatPreference === "originals" && reissue) {
+    delta -= 10;
+  } else if (profile.formatPreference === "reissues" && !reissue) {
+    delta -= 3;
   }
 
   const popular = rec.wantCount !== null && rec.wantCount >= POPULAR_WANT_THRESHOLD;
@@ -140,6 +152,38 @@ export function feedbackAffinityAdjustment(
   return delta;
 }
 
+export interface QuizArtistAffinity {
+  ownedArtists: Set<string>;
+  seenLiveArtists: Set<string>;
+}
+
+/** Precomputes lowercased artist-name sets from the quiz's artist recognition
+ * grid ("own on vinyl" / "seen live") — a quiz-declared artist affinity,
+ * distinct from Spotify listening data and from in-app like/dislike
+ * feedback. */
+export function buildQuizArtistAffinity(
+  recognizedArtists: QuizRecognizedArtists = { owned: [], seenLive: [] },
+): QuizArtistAffinity {
+  return {
+    ownedArtists: new Set(recognizedArtists.owned.map((a) => a.toLowerCase())),
+    seenLiveArtists: new Set(recognizedArtists.seenLive.map((a) => a.toLowerCase())),
+  };
+}
+
+/** Score delta from the quiz's artist recognition grid. Seeing an artist live
+ * is weighted slightly above owning them on vinyl already — it's a harder,
+ * more deliberate signal of real fandom than a vinyl purchase. */
+export function quizArtistAffinityAdjustment(
+  artist: string,
+  affinity: QuizArtistAffinity,
+): number {
+  const key = artist.toLowerCase();
+  let delta = 0;
+  if (affinity.ownedArtists.has(key)) delta += 10;
+  if (affinity.seenLiveArtists.has(key)) delta += 12;
+  return delta;
+}
+
 const GENRE_TO_SPOTIFY: Record<QuizGenre, string> = {
   Rock: "rock",
   Alternative: "alt-rock",
@@ -167,19 +211,23 @@ function decadeMatches(year: number | null, decades: QuizDecade[]): boolean {
   return decades.some((d) => decade === parseInt(d.replace("s", ""), 10));
 }
 
-function genreOverlap(
-  albumGenres: string[],
-  quizGenres: QuizGenre[],
-  spotifyGenres: string[],
-): number {
+/** Quiz-genre overlap only — kept separate from `spotifyGenreOverlap` so the
+ * two can be scored into `quizScore` and `score` respectively rather than one
+ * combined number that hides how much either signal actually contributed. */
+function quizGenreOverlap(albumGenres: string[], quizGenres: QuizGenre[]): number {
   const normalizedQuiz = quizGenres.map((g) => g.toLowerCase());
-  const normalizedSpotify = spotifyGenres.map((g) => g.toLowerCase());
   const normalizedAlbum = albumGenres.map((g) => g.toLowerCase());
-
   let score = 0;
   for (const g of normalizedQuiz) {
     if (normalizedAlbum.some((a) => a.includes(g) || g.includes(a))) score += 2;
   }
+  return score;
+}
+
+function spotifyGenreOverlap(albumGenres: string[], spotifyGenres: string[]): number {
+  const normalizedSpotify = spotifyGenres.map((g) => g.toLowerCase());
+  const normalizedAlbum = albumGenres.map((g) => g.toLowerCase());
+  let score = 0;
   for (const g of normalizedSpotify) {
     if (normalizedAlbum.some((a) => a.includes(g) || g.includes(a))) score += 1;
   }
@@ -285,6 +333,13 @@ export function collectReasonBuckets(
     quiz.push(`Has that ${matchedMood.toLowerCase()} feel you picked`);
   }
 
+  const recognizedArtists = context.quizRecognizedArtists;
+  if (recognizedArtists?.seenLive.some((a) => a.toLowerCase() === artistKey)) {
+    quiz.push(`You told us you've seen ${album.artist} live`);
+  } else if (recognizedArtists?.owned.some((a) => a.toLowerCase() === artistKey)) {
+    quiz.push(`You already own ${album.artist} on vinyl`);
+  }
+
   if (rec.communityRating && rec.communityRating >= 4) {
     community.push(
       `Highly rated on Discogs (${rec.communityRating.toFixed(1)}/5)`,
@@ -302,6 +357,25 @@ export function collectReasonBuckets(
   }
 
   return { spotify, quiz, community };
+}
+
+/** Fixed prefixes of every reason string `collectReasonBuckets` can push into
+ * its `spotify` bucket — kept in sync with those `spotify.push(...)` calls
+ * above. Used by `hasSpotifyReason` to detect, from an already-interleaved
+ * `Recommendation.reasons` array, whether a pick cited saved/recent/core
+ * taste — the "% of recommendations with specific reasons" success metric. */
+const SPOTIFY_REASON_PREFIXES = [
+  "Related to your top artist",
+  "In your saved albums",
+  "Similar to ",
+  "You've been playing a lot of ",
+  "Deep cut from an artist you love long-term",
+];
+
+/** True when at least one of a recommendation's (already-interleaved) reason
+ * strings was Spotify-listening-derived. */
+export function hasSpotifyReason(reasons: string[]): boolean {
+  return reasons.some((r) => SPOTIFY_REASON_PREFIXES.some((p) => r.startsWith(p)));
 }
 
 /** Round-robins the three source buckets (spotify, quiz, community) into one
@@ -419,13 +493,21 @@ export async function scoreCandidates(
   const similarByName = new Map(
     similarArtists.map((a) => [a.name.toLowerCase(), a.match]),
   );
-  const { tasteVector, snapshot, wishlist = [], quizAlbumPreferences = [], quizSubGenres = [] } = context;
+  const {
+    tasteVector,
+    snapshot,
+    wishlist = [],
+    quizAlbumPreferences = [],
+    quizSubGenres = [],
+    quizRecognizedArtists,
+  } = context;
 
   const wishlistReleaseIds = new Set(wishlist.map((w) => w.discogsReleaseId));
   const affinity = buildFeedbackAffinity(feedback, wishlist);
+  const quizArtistAffinity = buildQuizArtistAffinity(quizRecognizedArtists);
 
   const scored = await mapWithConcurrency(
-    candidates.slice(0, 25),
+    candidates.slice(0, 35),
     4,
     async (album) => {
       const vinyl = await searchVinylRelease(album.artist, album.name);
@@ -442,7 +524,9 @@ export async function scoreCandidates(
       );
 
       let score = 0;
-      score += genreOverlap(enriched.genres, profile.genres, topGenres) * 10;
+      let quizScore = 0;
+      score += spotifyGenreOverlap(enriched.genres, topGenres) * 10;
+      quizScore += quizGenreOverlap(enriched.genres, profile.genres) * 10;
 
       if (quizSubGenres.length > 0) {
         const subMatches = quizSubGenres.filter((sg) =>
@@ -452,10 +536,10 @@ export async function scoreCandidates(
               sg.toLowerCase().includes(g.toLowerCase()),
           ),
         ).length;
-        score += subMatches * 8;
+        quizScore += subMatches * 8;
       }
 
-      if (decadeMatches(enriched.year, profile.decades)) score += 15;
+      if (decadeMatches(enriched.year, profile.decades)) quizScore += 15;
 
       const artistAffinity =
         tasteVector?.artistWeights[album.artistId] ??
@@ -502,7 +586,8 @@ export async function scoreCandidates(
         }
       }
 
-      score += quizAffinityAdjustment(enriched, profile);
+      quizScore += quizAffinityAdjustment(enriched, profile);
+      quizScore += quizArtistAffinityAdjustment(album.artist, quizArtistAffinity);
 
       if (enriched.communityRating !== null && (enriched.ratingCount ?? 0) >= 5) {
         score += enriched.communityRating * 3;
@@ -512,11 +597,11 @@ export async function scoreCandidates(
 
       for (const pref of quizAlbumPreferences) {
         if (albumMatchesPreference(album, pref, "winner")) {
-          score += 18;
+          quizScore += 18;
           break;
         }
         if (albumMatchesPreference(album, pref, "loser")) {
-          score -= 8;
+          quizScore -= 8;
           break;
         }
       }
@@ -524,6 +609,7 @@ export async function scoreCandidates(
       enriched.spotifyAlbumId = album.id;
       enriched.spotifyUrl = album.spotifyUrl;
       enriched.score = score;
+      enriched.quizScore = quizScore;
       enriched.reasons = buildReasons(
         enriched,
         profile,
@@ -554,26 +640,30 @@ export async function getQuizOnlyRecommendations(
   profile: TasteProfileData,
   feedback: FeedbackEntry[] = [],
   wishlist: WishlistItem[] = [],
+  recognizedArtists: QuizRecognizedArtists = { owned: [], seenLive: [] },
 ): Promise<Recommendation[]> {
+  // 40, not 25 — browseByGenreDecade's Discogs call count is fixed at up to 6
+  // (one per genre×decade combo) regardless of this limit, so raising it only
+  // costs more of the *downstream* enrichment calls, not more browse calls.
   const results = await browseByGenreDecade(
     profile.genres,
     profile.decades,
-    25,
+    40,
   );
   const affinity = buildFeedbackAffinity(feedback, wishlist);
+  const quizArtistAffinity = buildQuizArtistAffinity(recognizedArtists);
+  const context: TasteContext = { quizRecognizedArtists: recognizedArtists };
 
   return results.map((r, i) => ({
     ...r,
-    // Browse rank (want-sorted) is the base signal, plus the same mood /
-    // format / deep-cut / feedback adjustments the Spotify path applies —
-    // previously these quiz preferences only decorated the reason text below,
-    // and like/dislike/wishlist feedback was ignored entirely, for quiz-only
-    // ranking.
-    score:
-      50 -
-      i +
+    // Browse rank (want-sorted) plus feedback is the base relevance signal;
+    // the mood/format/deep-cut adjustment goes into quizScore instead of
+    // being folded in here, matching the Spotify path — see quizScore doc on
+    // the Recommendation type.
+    score: 50 - i + feedbackAffinityAdjustment(r.artist, affinity),
+    quizScore:
       quizAffinityAdjustment(r, profile) +
-      feedbackAffinityAdjustment(r.artist, affinity),
+      quizArtistAffinityAdjustment(r.artist, quizArtistAffinity),
     reasons: buildReasons(r, profile, null, {
       id: "",
       name: r.title,
@@ -582,7 +672,7 @@ export async function getQuizOnlyRecommendations(
       releaseDate: "",
       imageUrl: r.coverUrl,
       spotifyUrl: "",
-    }, {}),
+    }, context),
   }));
 }
 

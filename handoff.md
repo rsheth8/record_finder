@@ -184,6 +184,49 @@ Real (non-batch-relative) fair value and wishlist price-drop email alerts — th
 - **Important caveat:** like any transactional email provider, Resend requires a verified sending domain to email real users — without one, only the developer's own Resend-verified test address can receive mail. This is a one-time setup outside this repo, not a code gap.
 - **`addToWishlist`'s API route** (`POST /api/wishlist`) now also calls `getMarketplaceStats()` once and sets `priceAtAdd` — bootstraps a baseline immediately rather than waiting for the next cron cycle.
 
+## Multi-source "Where to buy" offers (2026-07-08)
+
+The first step toward the "cheapest price across every source" north star — an
+album-page panel that aggregates buy options beyond Discogs and ranks them
+cheapest-first. Preceded by a research spike (see git history: coverage +
+live-match spikes) that de-risked the approach before this build.
+
+- **Normalized offer layer** (`src/lib/offers/`) — every source maps into one
+  `Offer` shape (`types.ts`); adapters are pluggable so eBay / Shopify / local
+  shops slot in later without touching the UI.
+  - `match.ts` — cross-source identity: UPC→GTIN-13 normalization + barcode
+    extraction from a release's `identifiers`, fuzzy artist+title coverage
+    scoring, wrong-format (CD/cassette) and non-record (merch/replica/book)
+    penalties, and `verified/likely/possible/rejected` tiers. Pure, unit-tested.
+  - `discogs.ts` — Discogs marketplace adapter. Yields a single **verified**
+    offer from `release.marketplace` (already fetched by `getRelease`, so zero
+    extra Discogs calls). Discogs' API only exposes aggregate lowest-price, not
+    per-seller rows, so this is "cheapest on Discogs", not a seller list.
+  - `google-shopping.ts` — SerpApi Google Shopping meta-search: one integration
+    federates Amazon/eBay/Walmart/B&N/countless shops. Query is **text-first**
+    (`"artist title vinyl LP"`) — the spike proved querying by raw UPC returns
+    unrelated junk on Google Shopping (it keyword-matches the digits). Gated on
+    `SERPAPI_KEY`; absent key = panel just shows the Discogs offer.
+  - `orchestrator.ts` — `getOffers(release)`: runs adapters in parallel with
+    per-source failure isolation, filters to likely+ (≥0.75), de-dupes, ranks by
+    **landed cost (price + shipping)**, caps at 8. In-memory TTL cache (6h) keeps
+    the paid meta-search cost bounded — a DB-backed cache (mirroring
+    `recommendation_cache`) is the prod step for multi-instance.
+- **UI** — `components/album/where-to-buy.tsx`, an async Server Component
+  streamed behind `<Suspense>` in `album-detail.tsx` (same pattern as
+  `SimilarReleases`), since the meta-search is slow/networked/paid. Rows show
+  seller, price + shipping note, a confidence badge (green **Verified** = this
+  exact release; **Likely** = matched by artist+title), and a "Best price"
+  highlight on the cheapest. Outbound links carry `rel="... sponsored"` —
+  affiliate-tagging (eBay Partner Network / Skimlinks) is a later step.
+- **Verified live** on real records across desktop / light theme / mobile: e.g.
+  Blue Lines returns 8 ranked offers ($14.99 Vinyl Junkies … $36.07 verified
+  Discogs), including Barnes & Noble surfaced *via Google Shopping*.
+- **Known limits (v1):** offers cap at "likely" from Google Shopping (list items
+  don't expose a UPC to verify against — eBay's GTIN search will unlock a true
+  "verified" tier); unknown shipping is treated as $0 for ranking (shown as
+  "plus shipping"); the non-record penalty is a starter heuristic.
+
 ## UI/UX craft pass (2026-07-08, later)
 
 A visual/motion-only polish pass — no behavior, data-flow, or business-logic changes. Highlights:
@@ -283,7 +326,7 @@ Copy `.env.example` → `.env.local`. Required for full functionality:
 - `DISCOGS_TOKEN`
 - `DATABASE_URL` (defaults to local SQLite file)
 
-Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending).
+Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending), `SERPAPI_KEY` (Google Shopping meta-search for the album "Where to buy" panel; omitted = panel shows the Discogs offer only — see "Multi-source Where to buy offers").
 
 A missing `DISCOGS_TOKEN` fails fast with an actionable error (pointing at discogs.com/settings/developers) instead of a cryptic upstream `401 Invalid consumer token` — a personal access token is enough; no app registration needed. Note `.env.local` is per-directory, so each git worktree needs its own copy.
 

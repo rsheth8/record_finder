@@ -101,6 +101,8 @@ describe("mergeGuestData", () => {
       albumPreference: "full_albums",
       formatPreference: "either",
       deepCutLevel: 80,
+      experienceLevel: "casual",
+      birthDecade: null,
       completed: true,
     });
 
@@ -122,6 +124,8 @@ describe("mergeGuestData", () => {
       albumPreference: "balanced",
       formatPreference: "either",
       deepCutLevel: 50,
+      experienceLevel: "casual",
+      birthDecade: null,
       completed: true,
     });
     await saveTasteProfileToDb(guest, {
@@ -131,6 +135,8 @@ describe("mergeGuestData", () => {
       albumPreference: "singles",
       formatPreference: "either",
       deepCutLevel: 20,
+      experienceLevel: "casual",
+      birthDecade: null,
       completed: true,
     });
 

@@ -1,4 +1,4 @@
-import type { QuizAlbumPreference, QuizGenre } from "@/lib/types";
+import type { ExperienceLevel, QuizAlbumPreference, QuizGenre } from "@/lib/types";
 
 export interface AlbumBattlePair {
   id: string;
@@ -58,13 +58,68 @@ export const ALBUM_BATTLE_PAIRS: AlbumBattlePair[] = [
   },
 ];
 
-export function pickAlbumBattles(genres: QuizGenre[], count = 3): AlbumBattlePair[] {
+/** Second tier for self-identified beginners — same rationale as
+ * `RECOGNIZED_ARTISTS_BEGINNER` in `recognized-artists.ts`: contemporary,
+ * widely-known albums instead of the classic-rock/canon-heavy default,
+ * covering the same genres as the default tier above. Also a best-effort,
+ * point-in-time snapshot, not an evergreen list. */
+export const ALBUM_BATTLE_PAIRS_BEGINNER: AlbumBattlePair[] = [
+  {
+    id: "rock-beginner-1",
+    genre: "Rock",
+    albumA: { artist: "Foo Fighters", title: "Wasting Light" },
+    albumB: { artist: "Kings of Leon", title: "Only by the Night" },
+  },
+  {
+    id: "indie-beginner-1",
+    genre: "Indie",
+    albumA: { artist: "Tame Impala", title: "Currents" },
+    albumB: { artist: "Beach House", title: "Teen Dream" },
+  },
+  {
+    id: "hiphop-beginner-1",
+    genre: "Hip-Hop",
+    albumA: { artist: "Drake", title: "Take Care" },
+    albumB: { artist: "Travis Scott", title: "Astroworld" },
+  },
+  {
+    id: "jazz-beginner-1",
+    genre: "Jazz",
+    albumA: { artist: "Kamasi Washington", title: "The Epic" },
+    albumB: { artist: "Robert Glasper", title: "Black Radio" },
+  },
+  {
+    id: "electronic-beginner-1",
+    genre: "Electronic",
+    albumA: { artist: "ODESZA", title: "A Moment Apart" },
+    albumB: { artist: "Calvin Harris", title: "Funk Wav Bounces Vol. 1" },
+  },
+  {
+    id: "soul-beginner-1",
+    genre: "Soul",
+    albumA: { artist: "Leon Bridges", title: "Coming Home" },
+    albumB: { artist: "Anderson .Paak", title: "Malibu" },
+  },
+  {
+    id: "alternative-beginner-1",
+    genre: "Alternative",
+    albumA: { artist: "Twenty One Pilots", title: "Blurryface" },
+    albumB: { artist: "Cage the Elephant", title: "Melophobia" },
+  },
+];
+
+export function pickAlbumBattles(
+  genres: QuizGenre[],
+  experienceLevel: ExperienceLevel = "casual",
+  count = 3,
+): AlbumBattlePair[] {
+  const pool = experienceLevel === "new" ? ALBUM_BATTLE_PAIRS_BEGINNER : ALBUM_BATTLE_PAIRS;
   const selected = genres.length > 0 ? genres : (["Rock"] as QuizGenre[]);
   const pairs: AlbumBattlePair[] = [];
   const used = new Set<string>();
 
   for (const genre of selected) {
-    for (const pair of ALBUM_BATTLE_PAIRS) {
+    for (const pair of pool) {
       if (pair.genre !== genre || used.has(pair.id)) continue;
       used.add(pair.id);
       pairs.push(pair);
@@ -72,7 +127,7 @@ export function pickAlbumBattles(genres: QuizGenre[], count = 3): AlbumBattlePai
     }
   }
 
-  for (const pair of ALBUM_BATTLE_PAIRS) {
+  for (const pair of pool) {
     if (used.has(pair.id)) continue;
     used.add(pair.id);
     pairs.push(pair);

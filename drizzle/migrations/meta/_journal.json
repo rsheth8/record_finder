@@ -85,6 +85,13 @@
       "when": 1783930039399,
       "tag": "0011_yellow_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783978147327,
+      "tag": "0012_silly_serpent_society",
+      "breakpoints": true
     }
   ]
 }

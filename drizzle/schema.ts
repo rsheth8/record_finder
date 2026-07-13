@@ -9,6 +9,8 @@ export const tasteProfile = sqliteTable("taste_profile", {
   albumPreference: text("album_preference").notNull().default("balanced"),
   formatPreference: text("format_preference").notNull().default("either"),
   deepCutLevel: integer("deep_cut_level").notNull().default(50),
+  experienceLevel: text("experience_level").notNull().default("casual"),
+  birthDecade: text("birth_decade"),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({

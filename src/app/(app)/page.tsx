@@ -77,7 +77,7 @@ export default async function HomePage() {
                   <p className="mt-1 text-sm text-muted">
                     {quizDone
                       ? "Complete — retake anytime to refine picks."
-                      : "7 quick steps on genres, eras, moods, and how you listen. No sign-in required."}
+                      : "A few quick questions on genres, eras, moods, and how you listen — optionally connect Spotify partway through for sharper questions. No sign-in required."}
                   </p>
                   {!quizDone && (
                     <Link href="/quiz" className="mt-3 inline-block">

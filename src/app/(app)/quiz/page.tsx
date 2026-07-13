@@ -1,15 +1,28 @@
-import { QuizFlow } from "@/components/quiz/quiz-flow";
+import { QuizFlow, QUIZ_STEPS } from "@/components/quiz/quiz-flow";
 import { getCurrentUserId } from "@/lib/identity";
 import { getTasteProfile } from "@/lib/taste-profile-store";
-import { getQuizResponses } from "@/lib/db/queries";
+import { getQuizResponses, getSpotifySnapshot } from "@/lib/db/queries";
+import { buildSpotifyQuizPool } from "@/lib/quiz/spotify-pool";
 
 export const dynamic = "force-dynamic";
 
-export default async function QuizPage() {
+export default async function QuizPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ step?: string }>;
+}) {
+  const { step } = await searchParams;
   const userId = await getCurrentUserId();
-  const [profile, responses] = userId
-    ? await Promise.all([getTasteProfile(userId), getQuizResponses(userId)])
-    : [null, null];
+  const [profile, responses, snapshot] = userId
+    ? await Promise.all([
+        getTasteProfile(userId),
+        getQuizResponses(userId),
+        getSpotifySnapshot(userId),
+      ])
+    : [null, null, null];
+
+  const initialStepIndex = step ? QUIZ_STEPS.indexOf(step as (typeof QUIZ_STEPS)[number]) : -1;
+  const initialSpotifyPool = snapshot ? buildSpotifyQuizPool(snapshot) : null;
 
   return (
     <div className="space-y-6">
@@ -30,12 +43,16 @@ export default async function QuizPage() {
                 albumPreference: profile.albumPreference,
                 formatPreference: profile.formatPreference,
                 deepCutLevel: profile.deepCutLevel,
+                experienceLevel: profile.experienceLevel,
+                birthDecade: profile.birthDecade,
                 subGenres: responses?.subGenres ?? {},
                 albumPreferences: responses?.albumPreferences ?? [],
                 recognizedArtists: responses?.recognizedArtists ?? { owned: [], seenLive: [] },
               }
             : null
         }
+        initialStepIndex={initialStepIndex >= 0 ? initialStepIndex : 0}
+        initialSpotifyPool={initialSpotifyPool}
       />
     </div>
   );

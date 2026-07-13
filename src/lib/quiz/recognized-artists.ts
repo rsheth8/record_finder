@@ -1,4 +1,4 @@
-import type { QuizGenre } from "@/lib/types";
+import type { ExperienceLevel, QuizGenre } from "@/lib/types";
 
 /** Curated, widely-recognizable artists per genre for the quiz's artist
  * recognition grid — same hand-curated approach as `album-battles.ts`.
@@ -25,11 +25,45 @@ export const RECOGNIZED_ARTISTS: Record<QuizGenre, string[]> = {
   Latin: ["Celia Cruz", "Buena Vista Social Club", "Rubén Blades"],
 };
 
+/** Second tier for self-identified beginners ("just getting into vinyl") —
+ * skews toward contemporary, mainstream-crossover acts instead of the
+ * classic-rock/canon-heavy default above, since a newer or younger listener
+ * is far more likely to actually recognize these. This is a best-effort,
+ * point-in-time snapshot of "widely known right now," not an evergreen
+ * list — worth revisiting periodically as tastes shift. */
+export const RECOGNIZED_ARTISTS_BEGINNER: Record<QuizGenre, string[]> = {
+  Rock: ["Foo Fighters", "Greta Van Fleet"],
+  Alternative: ["Twenty One Pilots", "Cage the Elephant"],
+  Indie: ["Boygenius", "Beabadoobee"],
+  "Hip-Hop": ["Drake", "Travis Scott"],
+  "R&B": ["SZA", "The Weeknd"],
+  Jazz: ["Kamasi Washington", "Robert Glasper"],
+  Soul: ["Leon Bridges", "Anderson .Paak"],
+  Funk: ["Bruno Mars", "Vulfpeck"],
+  Electronic: ["Calvin Harris", "ODESZA"],
+  Pop: ["Taylor Swift", "Dua Lipa"],
+  Punk: ["Green Day", "IDLES"],
+  Metal: ["Ghost", "Sleep Token"],
+  Folk: ["Fleet Foxes", "Noah Kahan"],
+  Country: ["Chris Stapleton", "Kacey Musgraves"],
+  Blues: ["Gary Clark Jr.", "Christone \"Kingfish\" Ingram"],
+  Classical: ["Ludovico Einaudi", "Max Richter"],
+  Reggae: ["Chronixx", "Protoje"],
+  Latin: ["Bad Bunny", "Rosalía"],
+};
+
 /** Selects a bounded, deduplicated pool of artists to show in the grid —
  * favors the user's chosen genres (same fallback-to-Rock pattern as
  * `pickAlbumBattles`), then tops up from the rest so the grid always has a
- * reasonable number of options even for a single-genre quiz taker. */
-export function pickRecognizedArtists(genres: QuizGenre[], cap = 12): string[] {
+ * reasonable number of options even for a single-genre quiz taker.
+ * `experienceLevel === "new"` draws from the beginner-friendly tier instead
+ * of the classic/canon-skewing default. */
+export function pickRecognizedArtists(
+  genres: QuizGenre[],
+  experienceLevel: ExperienceLevel = "casual",
+  cap = 12,
+): string[] {
+  const pool = experienceLevel === "new" ? RECOGNIZED_ARTISTS_BEGINNER : RECOGNIZED_ARTISTS;
   const selected = genres.length > 0 ? genres : (["Rock"] as QuizGenre[]);
   const artists: string[] = [];
   const seen = new Set<string>();
@@ -45,9 +79,9 @@ export function pickRecognizedArtists(genres: QuizGenre[], cap = 12): string[] {
   }
 
   for (const genre of selected) {
-    if (addAll(RECOGNIZED_ARTISTS[genre] ?? [])) return artists;
+    if (addAll(pool[genre] ?? [])) return artists;
   }
-  for (const list of Object.values(RECOGNIZED_ARTISTS)) {
+  for (const list of Object.values(pool)) {
     if (addAll(list)) return artists;
   }
   return artists;

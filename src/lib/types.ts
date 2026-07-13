@@ -47,6 +47,24 @@ export type AlbumPreference = "singles" | "balanced" | "full_albums";
 /** Original pressings vs. reissues/represses — "either" means no preference. */
 export type FormatPreference = "originals" | "either" | "reissues";
 
+/** Self-rated record-collecting experience — used to pick a more
+ * contemporary/mainstream-skewing curated pool for the recognized-artists
+ * and album-battle quiz steps ("new"), and to de-weight those signals
+ * slightly in quiz-only scoring since they're noisier for a beginner who
+ * hasn't connected Spotify. See engine.ts's `confidenceScale`. */
+export type ExperienceLevel = "new" | "casual" | "collector";
+
+export const BIRTH_DECADES = [
+  "2010s",
+  "2000s",
+  "1990s",
+  "1980s",
+  "1970s or earlier",
+  "Prefer not to say",
+] as const;
+
+export type BirthDecade = (typeof BIRTH_DECADES)[number];
+
 export interface TasteProfileData {
   genres: QuizGenre[];
   decades: QuizDecade[];
@@ -54,6 +72,8 @@ export interface TasteProfileData {
   albumPreference: AlbumPreference;
   formatPreference: FormatPreference;
   deepCutLevel: number;
+  experienceLevel: ExperienceLevel;
+  birthDecade: BirthDecade | null;
   completedAt: Date | null;
 }
 

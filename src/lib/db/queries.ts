@@ -46,6 +46,8 @@ import type {
   QuizSubGenres,
   FormatPreference,
   QuizRecognizedArtists,
+  ExperienceLevel,
+  BirthDecade,
 } from "@/lib/types";
 
 export async function getTasteProfileFromDb(
@@ -66,6 +68,8 @@ export async function getTasteProfileFromDb(
     albumPreference: row.albumPreference as AlbumPreference,
     formatPreference: row.formatPreference as FormatPreference,
     deepCutLevel: row.deepCutLevel,
+    experienceLevel: (row.experienceLevel as ExperienceLevel) ?? "casual",
+    birthDecade: (row.birthDecade as BirthDecade | null) ?? null,
     completedAt: row.completedAt,
   };
 }
@@ -90,6 +94,8 @@ export async function saveTasteProfileToDb(
     albumPreference: data.albumPreference,
     formatPreference: data.formatPreference,
     deepCutLevel: data.deepCutLevel,
+    experienceLevel: data.experienceLevel,
+    birthDecade: data.birthDecade,
     completedAt: data.completed ? now : existing?.completedAt ?? null,
     updatedAt: now,
   };

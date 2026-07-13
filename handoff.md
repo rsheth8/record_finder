@@ -24,15 +24,15 @@ Last updated: 2026-07-13
 ## User flows
 
 ```
-Home → Taste Quiz (7 steps) → Discover → Album detail
-         ↓ optional
+Home → Taste Quiz (11 steps, 2 optional) → Discover → Album detail
+         ↓ optional, mid-quiz or anytime
     Spotify connect → full listening sync → sharper picks
 
 Search (guest, no quiz) → Album detail
 ```
 
 1. **Search** (`/search`) — full-catalog Discogs vinyl search, no quiz or sign-in required. See "Catalog search" below.
-2. **Quiz** (`/quiz`) — genres, sub-genres, decades, moods, album A-vs-B battles, listening style, deep-cut slider. Guests get a signed cookie ID; data persists without sign-in.
+2. **Quiz** (`/quiz`) — genres, self-rated experience level + optional birth decade, optional mid-quiz Spotify connect, sub-genres, decades, moods, recognized artists, album A-vs-B battles, listening style, format preference, deep-cut slider. Guests get a signed cookie ID; data persists without sign-in. See "Quiz redesign" below for the experience-level/Spotify-tailoring details.
 3. **Spotify connect** — OAuth scopes: `user-top-read`, `user-read-recently-played`, `user-library-read`. Sync runs on home page connect and before recommendation generation when snapshot is stale (24h).
 4. **Discover** (`/discover`) — requires completed quiz. Reads recommendation cache on SSR; client triggers `POST /api/recommendations` if empty (~25s Discogs pass). A local-filter miss ("no matches in your picks") links out to `/search?q=...` for the full catalog.
 5. **Album** (`/album/[id]`) — Discogs release detail, feedback (like/dislike/own/hide), wishlist (signed-in), reserve with credits, Spotify link. Reachable from Discover, Search, or Wishlist; the back link (`album/back-link.tsx`) goes to whichever one you came from via browser history, falling back to Discover on a direct link.
@@ -473,13 +473,25 @@ Follow-up question after the above: "should we start adding in the profile secti
 - Added to both `app-nav.tsx` and `mobile-nav.tsx` (now 6 tabs) since, unlike the dashboard, this is a mainstream feature for every user, not admin-only.
 - Verified live: guest state renders correctly with real persisted quiz data from earlier in the session; confirmed at 375px that 6 mobile tabs still fit without overflow or breakage. Signed-in-only sections (wishlist/credits cards, Spotify sync stats) not visually verified — same no-OAuth-session caveat as above.
 
+## Quiz redesign — experience level + Spotify-tailored questions (2026-07-13, later)
+
+User complaint: the "own on vinyl / seen live" artist-recognition step and the album A-vs-B battles assume a level of music knowledge not every quiz-taker has — a newer or younger listener may not recognize either side of a curated classic-rock-skewing pool (e.g. Rock always showed Led Zeppelin/Stones/Fleetwood Mac), making the answer noise instead of signal.
+
+- **New `background` step** (right after genres) — self-rated `experienceLevel` (`"new" | "casual" | "collector"`, new `TasteProfileData` field, migration `0012_silly_serpent_society.sql`, defaults `"casual"` for existing rows) plus an optional `birthDecade` pill (`BIRTH_DECADES` in `types.ts`, includes "Prefer not to say"). Neither blocks Continue — same no-forced-answer convention as every other step.
+- **New `connectSpotify` step** — optional, skippable, placed early so its background sync has several steps to finish before the payoff steps are reached. Clicking through does `signIn("spotify", { callbackUrl: "/quiz?step=connectSpotify" })`; `quiz/page.tsx` reads `searchParams.step` to resume at the right position after the OAuth round-trip (progress itself was already safe — `mergeGuestData()` runs synchronously in the NextAuth `jwt` callback before redirect-back, confirmed via research before building this). The listening snapshot itself is populated by a **separate async client step** mirroring `SpotifySync`'s pattern (`POST /api/spotify/top`) — real few-second delay, shown via `VinylLoader`, never blocks Continue.
+- **Spotify-tailored `recognizedArtists`/`albumBattles`** — when a pool is available (mid-quiz connect, or a pre-existing snapshot fetched server-side in `quiz/page.tsx`), those two steps source options from the user's own `topArtists.medium` and a saved-albums/top-tracks-derived album pool (`src/lib/quiz/spotify-pool.ts`, shared between server and client so the extraction logic isn't duplicated) instead of the generic curated pool — guaranteed-relevant since it's their own listening history. Copy changes to reflect this ("Here's what you've been playing" / "Which of your own favorites?").
+- **Beginner-tier curated pools** — for users who skip Spotify and self-identify as `"new"`, `recognized-artists.ts`/`album-battles.ts` each gained a second, more contemporary/mainstream-skewing tier (`RECOGNIZED_ARTISTS_BEGINNER`, `ALBUM_BATTLE_PAIRS_BEGINNER`) selected via `pickRecognizedArtists(genres, experienceLevel, cap)` / `pickAlbumBattles(genres, experienceLevel, count)`. **Caveat**: these are a best-effort, point-in-time snapshot of "widely known right now," not an evergreen list — worth a periodic content refresh.
+- **De-weighted quiz-only scoring** — `quizArtistAffinityAdjustment` (`engine.ts`) gained a `confidenceScale` param; `getQuizOnlyRecommendations` (the no-Spotify scoring path) passes `0.5` when `experienceLevel === "new"`, since a beginner's generic-pool recognition answer is noisier evidence than the same answer from someone experienced. `scoreCandidates` (the Spotify-seeded path) always passes the default `1` — if that path is running, a snapshot exists, meaning the recognized-artist/battle answers came from the user's own real data regardless of self-rated experience, which is inherently high-confidence. The album-battle match bonus/penalty only exists in `scoreCandidates` already, so it didn't need separate de-weighting.
+- **Not fixed, flagged during this pass**: a latent dead-code bug in `derive-profile.ts` (album-battle winner/loser weights never apply to the Spotify taste vector because the synthetic `battle:<id>:A/B` ids never match real Spotify album ids) and the fact that 11 of 18 genres have zero curated album-battle pairs today (falls back to an unrelated genre's pair) — both pre-existing, out of scope for this pass.
+- **Verified live**: the guest quiz path end-to-end (background step, skippable connectSpotify step via Continue, beginner-tier pool swap for `"new"`, unchanged pool for `"casual"`/`"collector"`), and `/profile` rendering the two new fields. **Not verified**: the actual mid-quiz Spotify OAuth round-trip and tailored-pool rendering — no real Spotify OAuth session available in this environment, same recurring caveat as every other Spotify-connected code path in this repo. Needs a real-account pass.
+
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0011_yellow_mephistopheles.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0012_silly_serpent_society.sql`.
 
 | Table | Purpose |
 |-------|---------|
-| `taste_profile` | Quiz summary (genres, decades, moods, album preference, format preference, deep-cut level) |
+| `taste_profile` | Quiz summary (genres, decades, moods, album preference, format preference, deep-cut level, experience level, birth decade) |
 | `quiz_responses` | Sub-genres + album battle preferences + recognized artists (`{owned, seenLive}`) |
 | `analytics_events` | Success-metrics event log — see "Success-metrics instrumentation" |
 | `spotify_snapshot` | Full listening snapshot + derived `taste_vector`; now also `playlist_tracks` (see "Spotify playlist import") |
@@ -532,6 +544,7 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Metrics dashboard | `src/app/(app)/dashboard/page.tsx`, `src/lib/admin.ts`, `src/components/dashboard/` |
 | Spotify playlist import | `src/lib/spotify/client.ts` (`fetchPlaylistLibrary`), `src/lib/auth.ts` (scope tracking), `src/types/next-auth.d.ts` |
 | Profile page | `src/app/(app)/profile/page.tsx` |
+| Quiz redesign (experience level, Spotify-tailored questions) | `src/components/quiz/quiz-flow.tsx`, `src/lib/quiz/spotify-pool.ts`, `src/lib/quiz/recognized-artists.ts`, `src/lib/quiz/album-battles.ts` |
 
 ## API routes
 

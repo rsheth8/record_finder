@@ -8,7 +8,7 @@ import { SpotifyConnect } from "@/components/spotify-connect";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { AlbumPreference, FormatPreference } from "@/lib/types";
+import type { AlbumPreference, ExperienceLevel, FormatPreference } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,12 @@ const FORMAT_PREFERENCE_LABELS: Record<FormatPreference, string> = {
   originals: "Original pressings only",
   either: "Originals or reissues",
   reissues: "Reissues are great",
+};
+
+const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
+  new: "Just getting into vinyl",
+  casual: "Building my collection",
+  collector: "Deep collector",
 };
 
 export default async function ProfilePage() {
@@ -130,6 +136,18 @@ export default async function ProfilePage() {
                 Deep-cut appetite:{" "}
                 <span className="text-foreground">{profile.deepCutLevel}/100</span>
               </span>
+              <span>
+                Experience:{" "}
+                <span className="text-foreground">
+                  {EXPERIENCE_LEVEL_LABELS[profile.experienceLevel]}
+                </span>
+              </span>
+              {profile.birthDecade && profile.birthDecade !== "Prefer not to say" && (
+                <span>
+                  Born:{" "}
+                  <span className="text-foreground">{profile.birthDecade}</span>
+                </span>
+              )}
             </div>
           </div>
         )}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { QUIZ_GENRES, QUIZ_DECADES, QUIZ_MOODS } from "@/lib/types";
+import { QUIZ_GENRES, QUIZ_DECADES, QUIZ_MOODS, BIRTH_DECADES } from "@/lib/types";
 
 const albumPreferenceSchema = z.object({
   winnerAlbumId: z.string(),
@@ -24,6 +24,8 @@ export const saveQuizSchema = z.object({
     .default("balanced"),
   formatPreference: z.enum(["originals", "either", "reissues"]).default("either"),
   deepCutLevel: z.number().min(0).max(100).default(50),
+  experienceLevel: z.enum(["new", "casual", "collector"]).default("casual"),
+  birthDecade: z.enum(BIRTH_DECADES).nullable().default(null),
   subGenres: z.record(z.string(), z.array(z.string())).default({}),
   albumPreferences: z.array(albumPreferenceSchema).default([]),
   recognizedArtists: recognizedArtistsSchema.default({ owned: [], seenLive: [] }),

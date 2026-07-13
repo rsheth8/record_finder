@@ -203,6 +203,25 @@ describe("buildQuizArtistAffinity + quizArtistAffinityAdjustment", () => {
     const affinity = buildQuizArtistAffinity();
     expect(quizArtistAffinityAdjustment("Owned Artist", affinity)).toBe(0);
   });
+
+  it("scales the delta down for a lower confidenceScale", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    const full = quizArtistAffinityAdjustment("Live Artist", affinity, 1);
+    const halved = quizArtistAffinityAdjustment("Live Artist", affinity, 0.5);
+    expect(halved).toBe(full * 0.5);
+  });
+
+  it("defaults confidenceScale to full weight when omitted", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    expect(quizArtistAffinityAdjustment("Live Artist", affinity)).toBe(
+      quizArtistAffinityAdjustment("Live Artist", affinity, 1),
+    );
+  });
+
+  it("stays neutral regardless of confidenceScale when there's no signal", () => {
+    const affinity = buildQuizArtistAffinity(recognized);
+    expect(quizArtistAffinityAdjustment("Unknown Artist", affinity, 0.5)).toBe(0);
+  });
 });
 
 describe("hasSpotifyReason", () => {
@@ -259,6 +278,8 @@ describe("collectReasonBuckets", () => {
     albumPreference: "balanced",
     formatPreference: "either",
     deepCutLevel: 50,
+    experienceLevel: "casual",
+    birthDecade: null,
     completedAt: new Date(),
   };
 

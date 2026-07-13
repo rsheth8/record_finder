@@ -172,16 +172,23 @@ export function buildQuizArtistAffinity(
 
 /** Score delta from the quiz's artist recognition grid. Seeing an artist live
  * is weighted slightly above owning them on vinyl already — it's a harder,
- * more deliberate signal of real fandom than a vinyl purchase. */
+ * more deliberate signal of real fandom than a vinyl purchase.
+ *
+ * `confidenceScale` (default 1, full weight) lets callers de-weight this
+ * signal — a self-identified beginner recognizing a generic curated-pool
+ * artist is noisier evidence of specific taste than the same answer from
+ * someone experienced, or from a pool sourced from the user's own Spotify
+ * data (always full weight — see getQuizOnlyRecommendations/scoreCandidates). */
 export function quizArtistAffinityAdjustment(
   artist: string,
   affinity: QuizArtistAffinity,
+  confidenceScale = 1,
 ): number {
   const key = artist.toLowerCase();
   let delta = 0;
   if (affinity.ownedArtists.has(key)) delta += 10;
   if (affinity.seenLiveArtists.has(key)) delta += 12;
-  return delta;
+  return delta * confidenceScale;
 }
 
 const GENRE_TO_SPOTIFY: Record<QuizGenre, string> = {
@@ -653,6 +660,11 @@ export async function getQuizOnlyRecommendations(
   const affinity = buildFeedbackAffinity(feedback, wishlist);
   const quizArtistAffinity = buildQuizArtistAffinity(recognizedArtists);
   const context: TasteContext = { quizRecognizedArtists: recognizedArtists };
+  // No Spotify data in this path, so a self-identified beginner's artist
+  // recognition answers came from the generic curated pool rather than their
+  // own listening history — noisier evidence of specific taste, so it's
+  // de-weighted rather than dropped. See quizArtistAffinityAdjustment's doc.
+  const confidenceScale = profile.experienceLevel === "new" ? 0.5 : 1;
 
   return results.map((r, i) => ({
     ...r,
@@ -663,7 +675,7 @@ export async function getQuizOnlyRecommendations(
     score: 50 - i + feedbackAffinityAdjustment(r.artist, affinity),
     quizScore:
       quizAffinityAdjustment(r, profile) +
-      quizArtistAffinityAdjustment(r.artist, quizArtistAffinity),
+      quizArtistAffinityAdjustment(r.artist, quizArtistAffinity, confidenceScale),
     reasons: buildReasons(r, profile, null, {
       id: "",
       name: r.title,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { signIn, useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,10 @@ import {
   QUIZ_GENRES,
   QUIZ_DECADES,
   QUIZ_MOODS,
+  BIRTH_DECADES,
   type AlbumPreference,
+  type BirthDecade,
+  type ExperienceLevel,
   type FormatPreference,
   type QuizAlbumPreference,
   type QuizDecade,
@@ -28,6 +32,7 @@ import {
   type AlbumBattlePair,
 } from "@/lib/quiz/album-battles";
 import { pickRecognizedArtists } from "@/lib/quiz/recognized-artists";
+import { buildSpotifyQuizPool, type SpotifyQuizPool } from "@/lib/quiz/spotify-pool";
 import { cn } from "@/lib/utils";
 import { VinylLoader } from "@/components/ui/vinyl-loader";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -36,16 +41,20 @@ import {
   CheckCircle2,
   Disc3,
   Headphones,
+  Music,
   Music2,
   Repeat,
   Sparkles,
   Swords,
+  UserRound,
   Users,
   Waves,
 } from "lucide-react";
 
-const STEPS = [
+export const QUIZ_STEPS = [
   "genres",
+  "background",
+  "connectSpotify",
   "subGenres",
   "decades",
   "moods",
@@ -58,6 +67,8 @@ const STEPS = [
 
 const STEP_META = {
   genres: { icon: Music2, label: "Genres" },
+  background: { icon: UserRound, label: "About you" },
+  connectSpotify: { icon: Music, label: "Spotify" },
   subGenres: { icon: Disc3, label: "Sub-genres" },
   decades: { icon: Calendar, label: "Eras" },
   moods: { icon: Waves, label: "Moods" },
@@ -152,6 +163,8 @@ function AlbumBattleCard({
 
 export function QuizFlow({
   initial,
+  initialStepIndex = 0,
+  initialSpotifyPool = null,
 }: {
   initial?: {
     genres: QuizGenre[];
@@ -160,15 +173,35 @@ export function QuizFlow({
     albumPreference: AlbumPreference;
     formatPreference?: FormatPreference;
     deepCutLevel: number;
+    experienceLevel?: ExperienceLevel;
+    birthDecade?: BirthDecade | null;
     subGenres?: QuizSubGenres;
     albumPreferences?: QuizAlbumPreference[];
     recognizedArtists?: QuizRecognizedArtists;
   } | null;
+  /** Resume position after a mid-quiz Spotify OAuth redirect — see the
+   * `connectSpotify` step. */
+  initialStepIndex?: number;
+  /** Already-connected Spotify data fetched server-side, so a returning
+   * signed-in user (e.g. retaking the quiz from /profile) skips straight to
+   * tailored artist/album pools without re-clicking "Connect". */
+  initialSpotifyPool?: SpotifyQuizPool | null;
 }) {
   const router = useRouter();
+  const { status } = useSession();
   const reducedMotion = useReducedMotion();
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(initialStepIndex);
   const [genres, setGenres] = useState<QuizGenre[]>(initial?.genres ?? []);
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel>(
+    initial?.experienceLevel ?? "casual",
+  );
+  const [birthDecade, setBirthDecade] = useState<BirthDecade | null>(
+    initial?.birthDecade ?? null,
+  );
+  const [spotifyPool, setSpotifyPool] = useState<SpotifyQuizPool | null>(initialSpotifyPool);
+  const [spotifySyncState, setSpotifySyncState] = useState<
+    "idle" | "syncing" | "done" | "error"
+  >("idle");
   const [subGenres, setSubGenres] = useState<QuizSubGenres>(initial?.subGenres ?? {});
   const [decades, setDecades] = useState<QuizDecade[]>(initial?.decades ?? []);
   const [moods, setMoods] = useState<QuizMood[]>(initial?.moods ?? []);
@@ -202,11 +235,65 @@ export function QuizFlow({
   const [celebrating, setCelebrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const battles = useMemo(() => pickAlbumBattles(genres, 3), [genres]);
-  const recognizedArtistPool = useMemo(() => pickRecognizedArtists(genres), [genres]);
+  // After a mid-quiz Spotify OAuth redirect (or arriving already signed in
+  // with no prior snapshot), sync listening data in the background — mirrors
+  // SpotifySync's pattern but doesn't block Continue on it. Later steps fall
+  // back to the curated pool if this hasn't resolved yet.
+  useEffect(() => {
+    if (status !== "authenticated" || spotifyPool !== null || spotifySyncState !== "idle") {
+      return;
+    }
+    let cancelled = false;
 
-  const step = STEPS[stepIndex];
-  const progress = ((stepIndex + 1) / STEPS.length) * 100;
+    async function sync() {
+      setSpotifySyncState("syncing");
+      try {
+        const res = await fetch("/api/spotify/top", { method: "POST" });
+        if (cancelled) return;
+        if (!res.ok) {
+          setSpotifySyncState("error");
+          return;
+        }
+        const data = await res.json();
+        setSpotifyPool(buildSpotifyQuizPool(data));
+        setSpotifySyncState("done");
+      } catch {
+        if (!cancelled) setSpotifySyncState("error");
+      }
+    }
+
+    sync();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, spotifyPool, spotifySyncState]);
+
+  const hasSpotifyArtists = (spotifyPool?.topArtists.length ?? 0) > 0;
+  const hasSpotifyAlbums = (spotifyPool?.topAlbums.length ?? 0) >= 2;
+
+  const battles = useMemo(() => {
+    if (hasSpotifyAlbums) {
+      const albums = spotifyPool!.topAlbums;
+      const pairs: AlbumBattlePair[] = [];
+      for (let i = 0; i + 1 < albums.length && pairs.length < 3; i += 2) {
+        pairs.push({
+          id: `spotify-${i}`,
+          genre: genres[0] ?? "Rock",
+          albumA: albums[i],
+          albumB: albums[i + 1],
+        });
+      }
+      return pairs;
+    }
+    return pickAlbumBattles(genres, experienceLevel, 3);
+  }, [genres, experienceLevel, hasSpotifyAlbums, spotifyPool]);
+  const recognizedArtistPool = useMemo(() => {
+    if (hasSpotifyArtists) return spotifyPool!.topArtists.slice(0, 12);
+    return pickRecognizedArtists(genres, experienceLevel);
+  }, [genres, experienceLevel, hasSpotifyArtists, spotifyPool]);
+
+  const step = QUIZ_STEPS[stepIndex];
+  const progress = ((stepIndex + 1) / QUIZ_STEPS.length) * 100;
   const StepIcon = STEP_META[step].icon;
 
   const albumPreferences = useMemo(
@@ -246,6 +333,8 @@ export function QuizFlow({
           albumPreference,
           formatPreference,
           deepCutLevel,
+          experienceLevel,
+          birthDecade,
           subGenres,
           albumPreferences,
           recognizedArtists: { owned: ownedArtists, seenLive: seenLiveArtists },
@@ -270,7 +359,7 @@ export function QuizFlow({
     const ok = await save(false);
     if (!ok) return;
 
-    if (stepIndex < STEPS.length - 1) {
+    if (stepIndex < QUIZ_STEPS.length - 1) {
       setStepIndex(stepIndex + 1);
     }
   }
@@ -313,14 +402,14 @@ export function QuizFlow({
           </div>
           <div className="text-center">
             <p className="text-sm text-muted">
-              Step {stepIndex + 1} of {STEPS.length} · {STEP_META[step].label}
+              Step {stepIndex + 1} of {QUIZ_STEPS.length} · {STEP_META[step].label}
             </p>
             <p className="mt-1 font-display text-lg font-semibold text-foreground">
               {Math.round(progress)}% complete
             </p>
           </div>
           <div className="flex gap-2">
-            {STEPS.map((s, i) => (
+            {QUIZ_STEPS.map((s, i) => (
               <div
                 key={s}
                 className={cn(
@@ -346,6 +435,90 @@ export function QuizFlow({
                 Pick up to 6 genres you want more vinyl recommendations in.
               </CardDescription>
               <ToggleGrid options={QUIZ_GENRES} selected={genres} onChange={setGenres} max={6} />
+            </>
+          )}
+
+          {step === "background" && (
+            <>
+              <CardTitle>Tell us a bit about your vinyl journey</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                This helps us pick the right kind of artist and album questions next —
+                no wrong answers.
+              </CardDescription>
+              <div className="space-y-6">
+                <div>
+                  <p className="mb-3 text-sm font-medium text-foreground">
+                    How deep is your record collection experience?
+                  </p>
+                  <div className="space-y-3">
+                    {(
+                      [
+                        ["new", "Just getting into vinyl", "I'm still discovering what I like"],
+                        ["casual", "Building my collection", "I know my favorites but I'm still exploring"],
+                        ["collector", "Deep collector", "I've got range and I know deep cuts"],
+                      ] as const
+                    ).map(([value, label, desc]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setExperienceLevel(value)}
+                        className={cn(
+                          "pressable focus-ring w-full rounded-xl border p-4 text-left",
+                          experienceLevel === value
+                            ? "border-accent bg-accent-muted"
+                            : "border-border hover:border-accent/50",
+                        )}
+                      >
+                        <div className="font-medium text-foreground">{label}</div>
+                        <div className="text-sm text-muted">{desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-3 text-sm font-medium text-foreground">
+                    What decade were you born? <span className="text-muted">(optional)</span>
+                  </p>
+                  <ToggleGrid
+                    options={BIRTH_DECADES}
+                    selected={birthDecade ? [birthDecade] : []}
+                    onChange={(next) => setBirthDecade(next[next.length - 1] ?? null)}
+                    max={1}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {step === "connectSpotify" && (
+            <>
+              <CardTitle>Connect Spotify (optional)</CardTitle>
+              <CardDescription className="mt-2 mb-6">
+                We&rsquo;ll tailor the next two questions to what you actually listen to
+                instead of guessing. Skip ahead any time — this won&rsquo;t block your
+                progress.
+              </CardDescription>
+              {hasSpotifyArtists || hasSpotifyAlbums ? (
+                <p className="flex items-center gap-2 text-sm text-success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Connected — the next two questions will use your real listening data.
+                </p>
+              ) : spotifySyncState === "syncing" ? (
+                <VinylLoader variant="inline" context="spotify" />
+              ) : status === "authenticated" ? (
+                <p className="text-sm text-muted">
+                  Connected, but we don&rsquo;t have enough listening history yet — you&rsquo;ll
+                  see our usual curated picks next.
+                </p>
+              ) : (
+                <Button
+                  onClick={() => signIn("spotify", { callbackUrl: "/quiz?step=connectSpotify" })}
+                  className="gap-2"
+                >
+                  <Music className="h-4 w-4" />
+                  Connect Spotify
+                </Button>
+              )}
             </>
           )}
 
@@ -393,10 +566,13 @@ export function QuizFlow({
 
           {step === "recognizedArtists" && (
             <>
-              <CardTitle>Know these artists?</CardTitle>
+              <CardTitle>
+                {hasSpotifyArtists ? "Here's what you've been playing" : "Know these artists?"}
+              </CardTitle>
               <CardDescription className="mt-2 mb-6">
-                Tell us who you already own on vinyl or have seen live — the strongest
-                signal we can get.
+                {hasSpotifyArtists
+                  ? "Own any of these on vinyl, or seen them live? The strongest signal we can get."
+                  : "Tell us who you already own on vinyl or have seen live — the strongest signal we can get. Don't recognize any? Skip ahead, that's fine too."}
               </CardDescription>
               <div className="space-y-2">
                 {recognizedArtistPool.map((artist) => {
@@ -443,9 +619,13 @@ export function QuizFlow({
 
           {step === "albumBattles" && (
             <>
-              <CardTitle>Quick album picks</CardTitle>
+              <CardTitle>
+                {hasSpotifyAlbums ? "Which of your own favorites?" : "Quick album picks"}
+              </CardTitle>
               <CardDescription className="mt-2 mb-6">
-                Choose the album you would rather spin — these teach us your taste fast.
+                {hasSpotifyAlbums
+                  ? "Pulled straight from your listening history — which would you rather spin?"
+                  : "Choose the album you would rather spin — these teach us your taste fast. Not sure? Skip ahead, no pressure."}
               </CardDescription>
               <div className="space-y-4">
                 {battles.map((pair) => (
@@ -565,7 +745,7 @@ export function QuizFlow({
           >
             Back
           </Button>
-          {stepIndex < STEPS.length - 1 ? (
+          {stepIndex < QUIZ_STEPS.length - 1 ? (
             <Button onClick={next} disabled={saving} size="lg">
               Continue
             </Button>

@@ -11,6 +11,15 @@ async function freshSearchCatalog() {
   return mod.searchCatalog;
 }
 
+// The enrichment/currency caches are also module-level singletons — reset
+// modules so each test starts with an empty cache, but (unlike
+// freshSearchCatalog) return the whole module so a single test can make
+// multiple calls against the *same* fresh cache to assert hit behavior.
+async function freshDiscogsClient() {
+  vi.resetModules();
+  return import("@/lib/discogs/client");
+}
+
 function mockFetchOnce(body: unknown) {
   return vi.spyOn(global, "fetch").mockResolvedValue({
     ok: true,
@@ -136,5 +145,73 @@ describe("searchCatalog", () => {
     const searchCatalog = await freshSearchCatalog();
     const { results } = await searchCatalog("");
     expect(results).toEqual([]);
+  });
+});
+
+describe("getAccountCurrency caching", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("only fetches once for repeat calls, even with a different sample release id", async () => {
+    const fetchSpy = mockFetchOnce({ lowest_price: { value: 10, currency: "EUR" } });
+    const { getAccountCurrency } = await freshDiscogsClient();
+
+    expect(await getAccountCurrency(1)).toBe("EUR");
+    expect(await getAccountCurrency(999)).toBe("EUR");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getReleaseEnrichment caching", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("only fetches once for repeat calls to the same release + currency", async () => {
+    const fetchSpy = mockFetchOnce({
+      num_for_sale: 3,
+      lowest_price: null,
+      community: { want: 100, have: 50, rating: { average: 4.5, count: 20 } },
+    });
+    const { getReleaseEnrichment } = await freshDiscogsClient();
+
+    const first = await getReleaseEnrichment(42, "USD");
+    const second = await getReleaseEnrichment(42, "USD");
+
+    expect(first).toEqual(second);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches separately for the same release under a different currency", async () => {
+    const fetchSpy = mockFetchOnce({
+      num_for_sale: 3,
+      lowest_price: null,
+      community: { want: 100, have: 50, rating: { average: 4.5, count: 20 } },
+    });
+    const { getReleaseEnrichment } = await freshDiscogsClient();
+
+    await getReleaseEnrichment(42, "USD");
+    await getReleaseEnrichment(42, "EUR");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a failed fetch, so the next call retries", async () => {
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ num_for_sale: 0, community: {} }),
+      } as Response);
+    const { getReleaseEnrichment } = await freshDiscogsClient();
+
+    const first = await getReleaseEnrichment(42, "USD");
+    const second = await getReleaseEnrichment(42, "USD");
+
+    expect(first).toBeNull();
+    expect(second).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

@@ -12,6 +12,7 @@ import {
   priceHistory,
   localShops,
   offerCache,
+  releaseEnrichmentCache,
   analyticsEvents,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
@@ -1007,6 +1008,64 @@ export async function cacheOffers(
     .insert(offerCache)
     .values(values)
     .onConflictDoUpdate({ target: offerCache.discogsReleaseId, set: values });
+}
+
+/** Batch-reads DB-cached enrichment (price/rating/want/have) for a set of
+ * releases in one query, so a page/row with several already-cached releases
+ * costs one round trip instead of one per release. `data` is deliberately
+ * untyped here — `lib/recommendations/enrich.ts` owns the real
+ * `EnrichmentData` shape and casts on read, mirroring how `getCachedOffers`
+ * keeps this module decoupled from the domain type it caches. */
+export async function getCachedReleaseEnrichments(
+  discogsReleaseIds: number[],
+  currency: string,
+): Promise<Map<number, unknown>> {
+  await ensureDb();
+  if (discogsReleaseIds.length === 0) return new Map();
+
+  const rows = await db
+    .select()
+    .from(releaseEnrichmentCache)
+    .where(
+      and(
+        inArray(releaseEnrichmentCache.discogsReleaseId, discogsReleaseIds),
+        eq(releaseEnrichmentCache.currency, currency),
+      ),
+    )
+    .all();
+
+  const now = new Date();
+  const result = new Map<number, unknown>();
+  for (const row of rows) {
+    if (row.expiresAt < now) continue;
+    result.set(row.discogsReleaseId, parseJson(row.data, null));
+  }
+  return result;
+}
+
+export async function cacheReleaseEnrichment(
+  discogsReleaseId: number,
+  currency: string,
+  data: unknown,
+  ttlMs: number,
+  now: Date = new Date(),
+): Promise<void> {
+  await ensureDb();
+  const values = {
+    discogsReleaseId,
+    currency,
+    data: JSON.stringify(data),
+    expiresAt: new Date(now.getTime() + ttlMs),
+    createdAt: now,
+  };
+
+  await db
+    .insert(releaseEnrichmentCache)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [releaseEnrichmentCache.discogsReleaseId, releaseEnrichmentCache.currency],
+      set: values,
+    });
 }
 
 // --- Analytics events ---------------------------------------------------

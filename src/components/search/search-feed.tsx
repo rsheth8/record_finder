@@ -67,6 +67,13 @@ function NoResultsState({ query }: { query: string }) {
   );
 }
 
+/** How many newly-arrived results to request price/rating/fair-value for at
+ * once — roughly what's visible in the grid on a typical viewport. The rest
+ * of a page still renders (title/artist/cover/year/genre/want-count are all
+ * free from the fast, unenriched search response) just without a price
+ * badge until scrolled into view triggers the next page anyway. */
+const ENRICH_BATCH_SIZE = 12;
+
 export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [submittedQuery, setSubmittedQuery] = useState(initialQuery);
@@ -83,6 +90,46 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
   // resolve after a later one and clobber the UI with stale results. Also
   // covers a scroll-triggered "load more" being superseded by a new search.
   const activeRequest = useRef<AbortController | null>(null);
+  // Kept in sync with `results` alongside every setResults call below, so
+  // the append-mode dedup logic in runSearch always reads the current list
+  // rather than a value captured in a stale render's closure.
+  const resultsRef = useRef<Recommendation[]>([]);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  /** Background follow-up to the fast, unenriched search response — patches
+   * price/rating/fair-value into already-rendered cards by id once it
+   * resolves. Not tied to `activeRequest`'s AbortController: if a newer
+   * search supersedes this one before it resolves, the merge below is a
+   * harmless no-op for any id that's no longer in `results`. */
+  async function enrichItems(toEnrich: Recommendation[]) {
+    if (toEnrich.length === 0) return;
+    try {
+      const res = await fetch("/api/discogs/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: toEnrich }),
+      });
+      if (!res.ok || !mounted.current) return;
+      const data = await res.json();
+      if (!mounted.current) return;
+      const enrichedById = new Map(
+        (data.results as Recommendation[]).map((r) => [r.discogsReleaseId, r]),
+      );
+      setResults((prev) => {
+        const next = prev.map((item) => enrichedById.get(item.discogsReleaseId) ?? item);
+        resultsRef.current = next;
+        return next;
+      });
+    } catch {
+      // Best-effort — cards just stay without a price badge.
+    }
+  }
 
   async function runSearch(
     q: string,
@@ -102,6 +149,7 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
     } else {
       setLoading(true);
       setResults([]);
+      resultsRef.current = [];
       setPagination(null);
     }
     setError(null);
@@ -124,16 +172,18 @@ export function SearchFeed({ initialQuery = "" }: { initialQuery?: string }) {
         return;
       }
 
-      setResults((prev) => {
-        if (!append) return data.results ?? [];
-        const seen = new Set(prev.map((r) => r.discogsReleaseId));
-        const additions = ((data.results ?? []) as Recommendation[]).filter(
-          (r) => !seen.has(r.discogsReleaseId),
-        );
-        return [...prev, ...additions];
-      });
+      const fetched = (data.results ?? []) as Recommendation[];
+      const seen = append
+        ? new Set(resultsRef.current.map((r) => r.discogsReleaseId))
+        : new Set<number>();
+      const additions = fetched.filter((r) => !seen.has(r.discogsReleaseId));
+      const nextResults = append ? [...resultsRef.current, ...additions] : additions;
+
+      resultsRef.current = nextResults;
+      setResults(nextResults);
       setPagination(data.pagination ?? null);
       setPage(targetPage);
+      void enrichItems(additions.slice(0, ENRICH_BATCH_SIZE));
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError("Something went wrong. Check your connection and try again.");

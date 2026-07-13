@@ -63,9 +63,10 @@ function FilterPill({
  * (see searchCatalog) that correctly narrow/order the *entire* matching
  * catalog, not just the current page. Deliberately does NOT include
  * min-rating/max-price/for-sale/format filters like Discover's — those need
- * per-item price/rating data that's only fetched for a bounded subset of
- * each page (see SEARCH_ENRICH_LIMIT), so filtering by them here would be
- * silently incomplete across the full multi-page result set. */
+ * per-item price/rating data that's only ever fetched for a bounded subset
+ * of each page (see ENRICH_BATCH_SIZE in search-feed.tsx), so filtering by
+ * them here would be silently incomplete across the full multi-page result
+ * set. */
 export function SearchFilters({
   filters,
   onChange,

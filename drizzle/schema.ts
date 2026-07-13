@@ -165,6 +165,28 @@ export const offerCache = sqliteTable("offer_cache", {
   releaseIdx: uniqueIndex("offer_cache_release_idx").on(t.discogsReleaseId),
 }));
 
+// DB-backed cache for per-release enrichment (price/rating/want/have) shown
+// on Discover/Search cards — same "survives cold starts, shared across
+// instances" motivation as offer_cache above. Keyed on release *and*
+// currency (not just release) since a converted price is only valid for the
+// currency it was converted under; in practice the account currency is
+// effectively constant (see discogs/client.ts's own in-memory cache of it),
+// so this is almost always a single row per release. `data` is the raw
+// `EnrichmentData` JSON from lib/recommendations/enrich.ts.
+export const releaseEnrichmentCache = sqliteTable("release_enrichment_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  currency: text("currency").notNull(),
+  data: text("data").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  releaseCurrencyIdx: uniqueIndex("release_enrichment_cache_release_currency_idx").on(
+    t.discogsReleaseId,
+    t.currency,
+  ),
+}));
+
 // Raw success-metrics event log (recommendation generation, feedback, sync,
 // search, reservations, email clicks) — see lib/db/queries.ts's `logEvent()`
 // and lib/analytics/metrics.ts for the pure aggregation functions that turn

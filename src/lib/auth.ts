@@ -71,7 +71,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             url: "https://accounts.spotify.com/authorize",
             params: {
               scope:
-                "user-top-read user-read-recently-played user-library-read",
+                "user-top-read user-read-recently-played user-library-read playlist-read-private",
             },
           },
         }),
@@ -83,6 +83,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        // Spotify's token-refresh response never includes `scope`, so this is
+        // only ever set here (on a real sign-in) and just spreads through
+        // unchanged on every subsequent refresh below — it reflects what was
+        // granted at consent time, not the current token's own response.
+        token.scope = account.scope;
 
         // First sign-in: adopt anything the visitor did as a guest, then retire
         // the guest cookie. Best-effort — never block sign-in on a merge failure.
@@ -113,6 +118,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       session.accessToken = token.accessToken as string | undefined;
       session.error = token.error as "RefreshAccessTokenError" | undefined;
+      session.scope = token.scope as string | undefined;
       if (token.sub) session.user.id = token.sub;
       return session;
     },

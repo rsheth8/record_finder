@@ -19,6 +19,7 @@ export async function GET() {
         savedAlbums: cached.savedAlbums.length,
         savedTracks: cached.savedTracks.length,
         recentlyPlayed: cached.recentlyPlayed.length,
+        playlistTracks: cached.playlistTracks.length,
       },
       cached: true,
     });

@@ -103,6 +103,12 @@ export interface SpotifyListeningSnapshot {
   savedAlbums: SpotifyAlbum[];
   savedTracks: SpotifyTrack[];
   recentlyPlayed: SpotifyRecentlyPlayed[];
+  /** Deduped tracks across the user's playlists (owned + followed), up to
+   * MAX_PLAYLISTS playlists' first page each — see fetchPlaylistLibrary in
+   * spotify/client.ts. Empty when the user hasn't granted
+   * playlist-read-private, not undefined, so every reader (taste-vector
+   * derivation, sync stats) can treat it like any other array field. */
+  playlistTracks: SpotifyTrack[];
   topGenres: string[];
   fetchedAt: Date;
 }

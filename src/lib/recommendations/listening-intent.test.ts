@@ -27,6 +27,7 @@ function snapshot(overrides: Partial<StoredSpotifySnapshot> = {}): StoredSpotify
     savedAlbums: [],
     savedTracks: [],
     recentlyPlayed: [],
+    playlistTracks: [],
     topGenres: [],
     fetchedAt: new Date(),
     tasteVector: null,

@@ -65,6 +65,23 @@ function collectArtistWeights(snapshot: SpotifyListeningSnapshot): Record<string
     addWeight(weights, track.artistId, decay * 0.2);
   }
 
+  // Playlist tracks mix active curation with algorithmic playlists (Discover
+  // Weekly, etc.), so this sits below savedTracks' explicit-save 0.25 but
+  // alongside recentlyPlayed's passive-listening tier — frequency-normalized
+  // the same way savedTracks is, not decayed (a playlist is a standing
+  // collection, not a point-in-time play).
+  const playlistArtistCounts = new Map<string, number>();
+  for (const track of snapshot.playlistTracks) {
+    playlistArtistCounts.set(
+      track.artistId,
+      (playlistArtistCounts.get(track.artistId) ?? 0) + 1,
+    );
+  }
+  const maxPlaylistArtist = Math.max(1, ...playlistArtistCounts.values());
+  for (const [artistId, count] of playlistArtistCounts) {
+    addWeight(weights, artistId, (count / maxPlaylistArtist) * 0.2);
+  }
+
   return weights;
 }
 
@@ -111,6 +128,14 @@ function collectAlbumWeights(
   for (const pref of quizPreferences) {
     addWeight(weights, pref.winnerAlbumId, 0.9);
     addWeight(weights, pref.loserAlbumId, 0.1);
+  }
+
+  // Below saved-album's flat 1.0 and top-tracks' up-to-0.6 — a playlist
+  // appearance is lower confidence than an explicit save, but still a real
+  // curation signal. Flat per unique album (no rank/recency to key off).
+  const playlistAlbumIds = new Set(snapshot.playlistTracks.map((t) => t.albumId));
+  for (const albumId of playlistAlbumIds) {
+    addWeight(weights, albumId, 0.4);
   }
 
   return weights;

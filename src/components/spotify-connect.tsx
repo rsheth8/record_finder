@@ -2,7 +2,12 @@
 
 import { signIn, signOut, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
-import { Music } from "lucide-react";
+import { ListMusic, Music } from "lucide-react";
+
+/** Added after this app's original OAuth scope set — an existing connected
+ * session's stored token may not have it yet, since Spotify only grants
+ * what was requested at the user's original consent. See src/lib/auth.ts. */
+const PLAYLIST_SCOPE = "playlist-read-private";
 
 export function SpotifyConnect({
   spotifyConfigured = true,
@@ -39,14 +44,29 @@ export function SpotifyConnect({
   }
 
   if (session) {
+    const hasPlaylistScope = session.scope?.includes(PLAYLIST_SCOPE) ?? false;
+
     return (
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted">
-          Connected as {session.user?.name ?? "Spotify user"}
-        </span>
-        <Button variant="ghost" size="sm" onClick={() => signOut()}>
-          Disconnect
-        </Button>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted">
+            Connected as {session.user?.name ?? "Spotify user"}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => signOut()}>
+            Disconnect
+          </Button>
+        </div>
+        {!hasPlaylistScope && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted">
+              Import your playlists for even sharper picks.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => signIn("spotify")} className="gap-2">
+              <ListMusic className="h-4 w-4" />
+              Grant playlist access
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

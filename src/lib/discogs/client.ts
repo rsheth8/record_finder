@@ -17,11 +17,32 @@ import {
 } from "@/lib/recommendations/match";
 import { convertToUsd, roundUsd } from "@/lib/commerce/currency";
 import { GENRE_DISCOGS_PARAM } from "@/lib/discogs/genre-map";
+import { createTtlCache } from "@/lib/utils/ttl-cache";
 
 const DISCOGS_API = "https://api.discogs.com";
 
 /** Discogs allows ~60 requests/min for authenticated tokens — space calls at 1/sec. */
 export const discogsThrottle = createRateLimiter(1000);
+
+/** The account currency is a property of the token/account, not of any
+ * particular release — cache it so every enrichment pass (one per Discover
+ * row, one per Search page) doesn't spend a full throttled call re-deriving
+ * the same value. A generous TTL is fine; it practically never changes. */
+const accountCurrencyCache = createTtlCache<string, string>(60 * 60 * 1000);
+
+/** Per-release enrichment (price/rating/want/have) is identical across every
+ * row/page that happens to include the same release — and genre/decade/
+ * most-wanted browse rows overlap heavily on popular titles. Caching this
+ * lets a repeat appearance resolve instantly instead of waiting behind the
+ * shared 1/sec throttle. `shouldCache` skips caching `null` (a failed fetch,
+ * see `getReleaseEnrichment`) so a transient error retries next time instead
+ * of leaving that release un-enriched for the full TTL. Keyed on currency too
+ * (even though it's effectively constant) so a converted price is never
+ * served under the wrong currency if that ever changes. */
+const releaseEnrichmentCache = createTtlCache<
+  string,
+  Awaited<ReturnType<typeof fetchReleaseEnrichment>>
+>(30 * 60 * 1000, { shouldCache: (v) => v !== null });
 
 function discogsHeaders(): HeadersInit {
   const token = process.env.DISCOGS_TOKEN;
@@ -156,8 +177,15 @@ export async function getMarketplaceStats(releaseId: number): Promise<{
 /** The token account's marketplace display currency (e.g. "EUR"), read from a
  * single marketplace/stats call. The release endpoint returns `lowest_price` as
  * a bare number in this currency, so we need it to convert those to USD. Sample
- * a release that's likely to have active listings; falls back to USD. */
+ * a release that's likely to have active listings; falls back to USD. Cached —
+ * see `accountCurrencyCache` above. */
 export async function getAccountCurrency(sampleReleaseId: number): Promise<string> {
+  return accountCurrencyCache.get("account-currency", () =>
+    fetchAccountCurrency(sampleReleaseId),
+  );
+}
+
+async function fetchAccountCurrency(sampleReleaseId: number): Promise<string> {
   try {
     const data = await discogsFetch<{ lowest_price?: DiscogsLowestPrice }>(
       `/marketplace/stats/${sampleReleaseId}`,
@@ -174,8 +202,18 @@ export async function getAccountCurrency(sampleReleaseId: number): Promise<strin
  * carries community rating, want/have, and marketplace price + stock all at
  * once, so a single call fills everything the search endpoint left null —
  * crucially the community rating, which drives sorting, the rating filter, and
- * the ⭐ badge. `accountCurrency` converts the bare `lowest_price` to USD. */
+ * the ⭐ badge. `accountCurrency` converts the bare `lowest_price` to USD.
+ * Cached — see `releaseEnrichmentCache` above. */
 export async function getReleaseEnrichment(
+  id: number,
+  accountCurrency: string,
+): ReturnType<typeof fetchReleaseEnrichment> {
+  return releaseEnrichmentCache.get(`${id}:${accountCurrency}`, () =>
+    fetchReleaseEnrichment(id, accountCurrency),
+  );
+}
+
+async function fetchReleaseEnrichment(
   id: number,
   accountCurrency: string,
 ): Promise<{
@@ -364,8 +402,9 @@ function searchResultToSearchHit(r: DiscogsSearchResult): Recommendation {
 
 // The base /database/search call itself costs the same one Discogs request
 // regardless of per_page (up to Discogs' own ceiling), so this can be
-// generous — the real cost lives downstream in enrichment (see
-// SEARCH_ENRICH_LIMIT in the search route), not here.
+// generous — the real cost lives downstream in enrichment, now a separate
+// client-triggered POST /api/discogs/enrich call for a bounded subset of the
+// page (see ENRICH_BATCH_SIZE in browse-row.tsx / search-feed.tsx), not here.
 const SEARCH_PER_PAGE = 24;
 const SEARCH_PAGE_MAX = 50;
 

@@ -26,6 +26,8 @@ import {
   logEvent,
   getAnalyticsEvents,
   getFeedbackLikeRateBySource,
+  getCachedReleaseEnrichments,
+  cacheReleaseEnrichment,
 } from "@/lib/db/queries";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
@@ -384,5 +386,57 @@ describe("analytics events", () => {
     // depending on test execution order.
     expect(rate.spotifyConnected).toBeGreaterThan(0);
     expect(rate.spotifyConnected).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("release enrichment cache", () => {
+  it("round-trips a cached enrichment and reads it back by release + currency", async () => {
+    const release = rid();
+    const data = { communityRating: 4.5, ratingCount: 10, wantCount: 100, haveCount: 50 };
+    await cacheReleaseEnrichment(release, "USD", data, 60_000);
+
+    const cached = await getCachedReleaseEnrichments([release], "USD");
+    expect(cached.get(release)).toEqual(data);
+  });
+
+  it("batch-reads several releases in one call, omitting ones with no cached row", async () => {
+    const releaseA = rid();
+    const releaseB = rid();
+    const releaseC = rid();
+    await cacheReleaseEnrichment(releaseA, "USD", { wantCount: 1 }, 60_000);
+    await cacheReleaseEnrichment(releaseB, "USD", { wantCount: 2 }, 60_000);
+
+    const cached = await getCachedReleaseEnrichments([releaseA, releaseB, releaseC], "USD");
+    expect(cached.get(releaseA)).toEqual({ wantCount: 1 });
+    expect(cached.get(releaseB)).toEqual({ wantCount: 2 });
+    expect(cached.has(releaseC)).toBe(false);
+  });
+
+  it("keeps entries for the same release separate per currency", async () => {
+    const release = rid();
+    await cacheReleaseEnrichment(release, "USD", { wantCount: 1 }, 60_000);
+    await cacheReleaseEnrichment(release, "EUR", { wantCount: 2 }, 60_000);
+
+    const usd = await getCachedReleaseEnrichments([release], "USD");
+    const eur = await getCachedReleaseEnrichments([release], "EUR");
+    expect(usd.get(release)).toEqual({ wantCount: 1 });
+    expect(eur.get(release)).toEqual({ wantCount: 2 });
+  });
+
+  it("omits an expired entry", async () => {
+    const release = rid();
+    await cacheReleaseEnrichment(release, "USD", { wantCount: 1 }, -1000);
+
+    const cached = await getCachedReleaseEnrichments([release], "USD");
+    expect(cached.has(release)).toBe(false);
+  });
+
+  it("updates the cached value on a repeat cache for the same release + currency", async () => {
+    const release = rid();
+    await cacheReleaseEnrichment(release, "USD", { wantCount: 1 }, 60_000);
+    await cacheReleaseEnrichment(release, "USD", { wantCount: 99 }, 60_000);
+
+    const cached = await getCachedReleaseEnrichments([release], "USD");
+    expect(cached.get(release)).toEqual({ wantCount: 99 });
   });
 });

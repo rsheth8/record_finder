@@ -9,6 +9,7 @@ type SyncStats = {
   savedAlbums: number;
   savedTracks: number;
   recentlyPlayed: number;
+  playlistTracks: number;
 };
 
 export function SpotifySync() {
@@ -52,10 +53,12 @@ export function SpotifySync() {
   }
 
   if (syncState === "done") {
+    const playlistDetail =
+      stats && stats.playlistTracks > 0 ? `, ${stats.playlistTracks} playlist tracks` : "";
     const detail =
       stats &&
-      (stats.savedAlbums > 0 || stats.recentlyPlayed > 0)
-        ? `Analyzed ${stats.savedAlbums} saved albums, ${stats.recentlyPlayed} recent plays.`
+      (stats.savedAlbums > 0 || stats.recentlyPlayed > 0 || stats.playlistTracks > 0)
+        ? `Analyzed ${stats.savedAlbums} saved albums, ${stats.recentlyPlayed} recent plays${playlistDetail}.`
         : "Spotify taste profile synced.";
 
     return (

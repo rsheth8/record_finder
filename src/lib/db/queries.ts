@@ -177,6 +177,7 @@ export async function getSpotifySnapshot(
       row.recentlyPlayed,
       [],
     ),
+    playlistTracks: parseJsonArray<SpotifyTrack>(row.playlistTracks, []),
     topGenres: parseJsonArray<string>(row.topGenres, []),
     tasteVector,
     fetchedAt: row.fetchedAt,
@@ -203,6 +204,7 @@ export async function saveSpotifySnapshot(
     savedAlbums: JSON.stringify(data.savedAlbums ?? []),
     savedTracks: JSON.stringify(data.savedTracks ?? []),
     recentlyPlayed: JSON.stringify(data.recentlyPlayed ?? []),
+    playlistTracks: JSON.stringify(data.playlistTracks ?? []),
     tasteVector: JSON.stringify(data.tasteVector ?? {}),
     fetchedAt: data.fetchedAt ?? new Date(),
   };

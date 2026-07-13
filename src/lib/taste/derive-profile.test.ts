@@ -11,6 +11,7 @@ function makeSnapshot(
     savedAlbums: [],
     savedTracks: [],
     recentlyPlayed: [],
+    playlistTracks: [],
     topGenres: [],
     fetchedAt: new Date(),
     ...overrides,
@@ -93,6 +94,87 @@ describe("deriveTasteProfile", () => {
     ]);
 
     expect(vector.albumWeights["battle:rock-1:A"]).toBeGreaterThan(0.8);
+  });
+
+  it("weights playlist-track artists below an explicit saved track", () => {
+    const playlistTrack = {
+      id: "pt1",
+      name: "Playlist Track",
+      artist: "Playlist Artist",
+      artistId: "playlist-artist",
+      albumId: "playlist-album",
+      albumName: "Album",
+      spotifyUrl: "https://open.spotify.com/track/pt1",
+    };
+    const savedTrack = {
+      ...playlistTrack,
+      id: "st1",
+      artistId: "saved-artist",
+    };
+
+    const vector = deriveTasteProfile(
+      makeSnapshot({ playlistTracks: [playlistTrack], savedTracks: [savedTrack] }),
+    );
+
+    expect(vector.artistWeights["playlist-artist"]).toBeGreaterThan(0);
+    expect(vector.artistWeights["playlist-artist"]).toBeLessThan(
+      vector.artistWeights["saved-artist"],
+    );
+  });
+
+  it("adds playlist-track albums to album weights, below an explicit saved album", () => {
+    const playlistTrack = {
+      id: "pt1",
+      name: "Playlist Track",
+      artist: "Artist",
+      artistId: "artist-1",
+      albumId: "playlist-album",
+      albumName: "Playlist Album",
+      spotifyUrl: "https://open.spotify.com/track/pt1",
+    };
+    const snapshot = makeSnapshot({
+      playlistTracks: [playlistTrack],
+      savedAlbums: [
+        {
+          id: "saved-album",
+          name: "Saved",
+          artist: "Artist",
+          artistId: "artist-1",
+          releaseDate: "2000",
+          imageUrl: null,
+          spotifyUrl: "https://open.spotify.com/album/saved",
+        },
+      ],
+    });
+
+    const vector = deriveTasteProfile(snapshot);
+    expect(vector.albumWeights["playlist-album"]).toBe(0.4);
+    expect(vector.albumWeights["playlist-album"]).toBeLessThan(vector.albumWeights["saved-album"]);
+  });
+
+  it("normalizes playlist-track artist frequency, favoring artists that recur across playlists", () => {
+    const track = (id: string, artistId: string) => ({
+      id,
+      name: "Track",
+      artist: "Artist",
+      artistId,
+      albumId: `album-${id}`,
+      albumName: "Album",
+      spotifyUrl: `https://open.spotify.com/track/${id}`,
+    });
+
+    const vector = deriveTasteProfile(
+      makeSnapshot({
+        playlistTracks: [
+          track("t1", "frequent"),
+          track("t2", "frequent"),
+          track("t3", "frequent"),
+          track("t4", "rare"),
+        ],
+      }),
+    );
+
+    expect(vector.artistWeights.frequent).toBeGreaterThan(vector.artistWeights.rare);
   });
 });
 

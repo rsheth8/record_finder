@@ -1,0 +1,1 @@
+ALTER TABLE `spotify_snapshot` ADD `playlist_tracks` text DEFAULT '[]' NOT NULL;

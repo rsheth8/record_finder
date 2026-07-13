@@ -28,7 +28,10 @@ import {
   getFeedbackLikeRateBySource,
   getCachedReleaseEnrichments,
   cacheReleaseEnrichment,
+  saveSpotifySnapshot,
+  getSpotifySnapshot,
 } from "@/lib/db/queries";
+import type { SpotifyListeningSnapshot } from "@/lib/types";
 
 // Each test uses distinct user ids so they don't collide within the shared DB.
 let counter = 0;
@@ -438,5 +441,48 @@ describe("release enrichment cache", () => {
 
     const cached = await getCachedReleaseEnrichments([release], "USD");
     expect(cached.get(release)).toEqual({ wantCount: 99 });
+  });
+});
+
+describe("spotify snapshot playlistTracks", () => {
+  function baseSnapshot(overrides: Partial<SpotifyListeningSnapshot> = {}): SpotifyListeningSnapshot {
+    return {
+      topArtists: { short: [], medium: [], long: [] },
+      topTracks: { short: [], medium: [], long: [] },
+      savedAlbums: [],
+      savedTracks: [],
+      recentlyPlayed: [],
+      playlistTracks: [],
+      topGenres: [],
+      fetchedAt: new Date(),
+      ...overrides,
+    };
+  }
+
+  it("round-trips playlistTracks through save and read", async () => {
+    const user = uid("playlist-snapshot");
+    const track = {
+      id: "t1",
+      name: "Track",
+      artist: "Artist",
+      artistId: "artist-1",
+      albumId: "album-1",
+      albumName: "Album",
+      spotifyUrl: "https://open.spotify.com/track/t1",
+    };
+    await saveSpotifySnapshot(user, baseSnapshot({ playlistTracks: [track] }));
+
+    const stored = await getSpotifySnapshot(user);
+    expect(stored?.playlistTracks).toEqual([track]);
+  });
+
+  it("defaults to an empty array when omitted", async () => {
+    const user = uid("playlist-snapshot-empty");
+    const snapshot: Partial<SpotifyListeningSnapshot> = baseSnapshot();
+    delete snapshot.playlistTracks;
+    await saveSpotifySnapshot(user, snapshot as SpotifyListeningSnapshot);
+
+    const stored = await getSpotifySnapshot(user);
+    expect(stored?.playlistTracks).toEqual([]);
   });
 });

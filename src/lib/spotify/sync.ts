@@ -13,6 +13,7 @@ export type SyncResult = SpotifyListeningSnapshot & {
     savedAlbums: number;
     savedTracks: number;
     recentlyPlayed: number;
+    playlistTracks: number;
   };
 };
 
@@ -37,6 +38,7 @@ export async function syncSpotifyListening(
       savedAlbums: snapshot.savedAlbums.length,
       savedTracks: snapshot.savedTracks.length,
       recentlyPlayed: snapshot.recentlyPlayed.length,
+      playlistTracks: snapshot.playlistTracks.length,
     },
   };
 }

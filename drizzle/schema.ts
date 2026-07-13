@@ -26,6 +26,7 @@ export const spotifySnapshot = sqliteTable("spotify_snapshot", {
   savedAlbums: text("saved_albums").notNull().default("[]"),
   savedTracks: text("saved_tracks").notNull().default("[]"),
   recentlyPlayed: text("recently_played").notNull().default("[]"),
+  playlistTracks: text("playlist_tracks").notNull().default("[]"),
   tasteVector: text("taste_vector").notNull().default("{}"),
   fetchedAt: integer("fetched_at", { mode: "timestamp" }).notNull(),
 }, (t) => ({

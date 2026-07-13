@@ -7,6 +7,7 @@ import type {
   SpotifyTopByTerm,
   SpotifyTrack,
 } from "@/lib/types";
+import { mapWithConcurrency } from "@/lib/utils/rate-limited-pool";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
@@ -222,6 +223,89 @@ export async function fetchSavedTracks(
   return items.map((item) => mapSpotifyTrack(item.track)).slice(0, maxItems);
 }
 
+export interface SpotifyPlaylistSummary {
+  id: string;
+  name: string;
+}
+
+/** Requires the `playlist-read-private` scope — added after this app's
+ * original scope set, so an already-connected user's stored access token
+ * may not have it yet (a 403 here is expected and handled by the caller,
+ * `fetchPlaylistLibrary`, not here). Capped at MAX_PLAYLISTS, not the user's
+ * full library — matches this client's existing "sample, don't exhaust"
+ * pattern (see fetchArtistAlbums' per-artist cap). */
+const MAX_PLAYLISTS = 20;
+
+async function fetchUserPlaylists(accessToken: string): Promise<SpotifyPlaylistSummary[]> {
+  const items = await spotifyPaginate<{ id: string; name: string } | null>(
+    `/me/playlists?limit=50`,
+    accessToken,
+    (data) => (data.items as ({ id: string; name: string } | null)[]) ?? [],
+    Math.ceil(MAX_PLAYLISTS / 50),
+  );
+
+  return items.filter((p): p is SpotifyPlaylistSummary => !!p).slice(0, MAX_PLAYLISTS);
+}
+
+/** One page (~100 tracks) per playlist, not deep-paginated — a single
+ * playlist's full track list isn't worth another round of pagination when
+ * the goal is a taste signal, not a complete import. Local files, removed
+ * tracks, and podcast episodes all come back with a shape that doesn't match
+ * a real track (missing `artists`), filtered out below. */
+async function fetchPlaylistTracks(
+  accessToken: string,
+  playlistId: string,
+): Promise<SpotifyTrack[]> {
+  const data = await spotifyFetch<{ items: { track: SpotifyTrackPayload | null }[] }>(
+    `/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,external_urls,artists,album))`,
+    accessToken,
+  );
+
+  return data.items
+    .map((item) => item.track)
+    .filter(
+      (track): track is SpotifyTrackPayload =>
+        !!track && Array.isArray(track.artists) && track.artists.length > 0,
+    )
+    .map(mapSpotifyTrack);
+}
+
+const PLAYLIST_FETCH_CONCURRENCY = 5;
+
+/** Deduped tracks across up to MAX_PLAYLISTS of the user's playlists (owned
+ * + followed — Spotify's /me/playlists already scopes to what the user
+ * follows, same as saved albums/tracks needing no further filtering).
+ * Bounded concurrency, not fully serial (20 playlists one at a time would be
+ * slow) or fully parallel (needlessly bursty). Never throws — a missing
+ * scope or any other failure just means no playlist signal this sync, same
+ * tolerance as every other partial-failure path in this app. */
+export async function fetchPlaylistLibrary(accessToken: string): Promise<SpotifyTrack[]> {
+  const playlists = await fetchUserPlaylists(accessToken);
+
+  const perPlaylist = await mapWithConcurrency(
+    playlists,
+    PLAYLIST_FETCH_CONCURRENCY,
+    async (playlist) => {
+      try {
+        return await fetchPlaylistTracks(accessToken, playlist.id);
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  const seen = new Set<string>();
+  const tracks: SpotifyTrack[] = [];
+  for (const list of perPlaylist) {
+    for (const track of list) {
+      if (seen.has(track.id)) continue;
+      seen.add(track.id);
+      tracks.push(track);
+    }
+  }
+  return tracks;
+}
+
 /** Fetches all listening signals and assembles a full snapshot. */
 export async function fetchFullListeningSnapshot(
   accessToken: string,
@@ -232,12 +316,14 @@ export async function fetchFullListeningSnapshot(
     savedAlbums,
     savedTracks,
     recentlyPlayed,
+    playlistTracks,
   ] = await Promise.all([
     fetchTopArtistsByTerm(accessToken),
     fetchTopTracksByTerm(accessToken),
     fetchSavedAlbums(accessToken),
     fetchSavedTracks(accessToken),
     fetchRecentlyPlayed(accessToken),
+    fetchPlaylistLibrary(accessToken).catch(() => []),
   ]);
 
   const topGenres = deriveTopGenres(topArtists.medium);
@@ -248,6 +334,7 @@ export async function fetchFullListeningSnapshot(
     savedAlbums,
     savedTracks,
     recentlyPlayed,
+    playlistTracks,
     topGenres,
     fetchedAt: new Date(),
   };

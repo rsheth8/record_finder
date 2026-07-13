@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Compass, Coins, Heart, Home, Search } from "lucide-react";
+import { Compass, Coins, Heart, Home, Search, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
@@ -13,6 +13,7 @@ const tabs = [
   { href: "/discover", label: "Discover", icon: Compass, exact: false },
   { href: "/wishlist", label: "Wishlist", icon: Heart, exact: false },
   { href: "/credits", label: "Credits", icon: Coins, exact: false },
+  { href: "/profile", label: "Profile", icon: User, exact: false },
 ];
 
 export function MobileNav() {

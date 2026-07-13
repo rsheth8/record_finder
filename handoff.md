@@ -1,6 +1,6 @@
 # Record Finder — Handoff
 
-Last updated: 2026-07-09
+Last updated: 2026-07-13
 
 ## What this is
 
@@ -37,6 +37,7 @@ Search (guest, no quiz) → Album detail
 4. **Discover** (`/discover`) — requires completed quiz. Reads recommendation cache on SSR; client triggers `POST /api/recommendations` if empty (~25s Discogs pass). A local-filter miss ("no matches in your picks") links out to `/search?q=...` for the full catalog.
 5. **Album** (`/album/[id]`) — Discogs release detail, feedback (like/dislike/own/hide), wishlist (signed-in), reserve with credits, Spotify link. Reachable from Discover, Search, or Wishlist; the back link (`album/back-link.tsx`) goes to whichever one you came from via browser history, falling back to Discover on a direct link.
 6. **Wishlist** (`/wishlist`) — requires Spotify sign-in.
+7. **Profile** (`/profile`) — works for guests too (reads whatever `getCurrentUserId()` resolves to). Consolidates taste-profile summary, quiz retake, `SpotifyConnect`, and (signed-in only) wishlist/credits shortcuts and Spotify sync stats — see "Profile page" below.
 
 On Spotify sign-in, `mergeGuestData()` moves guest quiz, wishlist, feedback, quiz responses, and Spotify snapshot (if account has none) to the real user ID.
 
@@ -421,22 +422,74 @@ Added tests for previously-uncovered pure logic: `group.ts` (including a regress
 
 **Still not covered by tests:** `scoreCandidates()` / `getQuizOnlyRecommendations()` in `engine.ts` (would need mocking Discogs/MusicBrainz/Last.fm/Apple Music clients — meaningful effort for a payoff not yet weighed against just re-reading the code), and anything requiring a real Spotify OAuth session (listening-intent row, wishlist, the Spotify-seeded recommendation path) — manual verification here was guest-mode only.
 
+## Netflix-style infinite scroll for Discover + Search (2026-07-13)
+
+User complaint: Discover and Search felt "limited and minimal" despite the earlier "limited results" fix. Root cause this time wasn't count, it was distribution + a hard ceiling — `groupRecommendations()` still exclusively partitioned its pool across genre/decade/deep-cut rows, so one dominant genre (e.g. Rock) could claim 12 of ~36 items and starve the rest, and once the scored batch was exhausted there was nothing left to scroll to.
+
+- **`group.ts` simplified further**: dropped decade rows and the "More to explore" catch-all entirely; kept only Top Picks + up to 2 scored genre rows + Deep Cuts, all now non-exclusive (a highlight reel over the shared pool, not a claim on it — same reasoning already applied to Top Picks, extended everywhere). Real breadth now comes from a second tier, not from subdividing a ~36-item batch further.
+- **`src/lib/recommendations/browse-rows.ts`** (new) — `buildBrowseRowQueue()`, a pure function producing ~25-30 live-catalog row definitions: one per quiz genre/decade not already claimed by a scored row, then the full `QUIZ_GENRES`/`QUIZ_DECADES` taxonomy as fallback, then two evergreen rows ("Most wanted right now", "Fresh pressings"). Genuinely large enough that scrolling to the end takes real effort.
+- **`src/components/discover/browse-row.tsx`** (new) — each queue entry is its own live Discogs query (`/api/discogs/search` with genre/decade/sort, no text query — `searchCatalog` already supported empty-query browse), fetched lazily on mount, independent of the scored batch's size.
+- **Vertical infinite scroll**: `DiscoverFeed` mounts scored rows immediately, then lazily mounts browse-row queue entries as a bottom sentinel scrolls into view. **Horizontal infinite scroll**: `CarouselRow` gained `onLoadMore`/`hasMore`/`loadingMore` — scrolling a row to its end fetches that row's next page and appends.
+- **New `src/hooks/use-in-view.ts`** — first `IntersectionObserver` usage in this codebase. Two real bugs found and fixed during live verification, not caught by unit tests:
+  1. A generous `rootMargin` meant the sentinel could stay continuously intersecting as new content was added above it, so the naive version fired once and went silent (IntersectionObserver only calls back on a threshold *crossing*). Fixed by accepting a `resetKey` that disconnects/reconnects the observer on every successful load, forcing a fresh check.
+  2. Search's sentinel only renders once `pagination` exists (after the first fetch resolves) — a plain object ref never picked up the late-mounting element. Fixed by returning a callback ref instead, which re-attaches the moment the element actually mounts.
+- **Search** (`search-feed.tsx`) — replaced Prev/Next buttons with the same scroll-to-load-more pattern (`useInView` + append-mode `runSearch`), keeping the existing `AbortController` stale-response guard.
+- Also fixed a real bug from this same pass: the "Most wanted right now"/"Fresh pressings" evergreen rows have neither genre nor decade, and `/api/discogs/search`'s validation only allowed an empty query alongside genre *or* decade — those two rows 400ed silently every time until the guard was relaxed to also accept a bare `sort`.
+- Verified live end-to-end (screenshots + server-log timing) on both pages, at desktop and 375px mobile; 292 tests passing at the end of this pass. Committed as `13f0454`.
+
+## Discover/Search loading performance (2026-07-13, later)
+
+Follow-up: "is there any other way to get the loading quicker." Root cause wasn't Discogs being slow in general — it was the API blocking each row/page's entire response on serialized, uncached, rate-limited enrichment.
+
+- **Two-tier enrichment cache** — in-memory (per-instance, `src/lib/utils/ttl-cache.ts`, generic TTL cache with in-flight de-dup, new) + a DB-backed `release_enrichment_cache` table (migration `0010`, mirrors `offer_cache`, survives serverless cold starts and is shared across instances). Also cached the account currency (`discogs/client.ts`), which was being re-derived via a full extra Discogs call on every single request even though it's fixed for the whole session.
+- **`src/lib/recommendations/enrich.ts` rewritten** — `getEnrichmentForReleases()` batch-reads the DB cache in one query for a whole page/row, falls through per-miss to the (in-memory-cached) Discogs client, writes misses back to the DB fire-and-forget. `enrichRecommendations()` dispatches concurrently (`Promise.all`) instead of serially — cache hits resolve instantly instead of queuing behind misses; genuine misses are still correctly paced by the shared `discogsThrottle` regardless of concurrency.
+- **Progressive loading, not just caching** — `/api/discogs/search` no longer enriches at all; it returns the raw list (one Discogs call) immediately. A new **`POST /api/discogs/enrich`** route (client sends back the `Recommendation[]` items it wants enriched, gets back the same shape with price/rating/fair-value filled in) is called as a background follow-up for just the items about to be visible (8 per Discover row, 12 per Search page — tuned down from the old flat 12 specifically for rows, since a carousel only shows ~5-6 at once). `browse-row.tsx`/`search-feed.tsx` render the fast list immediately and merge the enrichment patch in by id when it resolves.
+- **Free parallelization**: the price-history DB lookup (`getPriceHistoryStatsForReleases`) only needs release ids, which are known before enrichment — moved to run alongside it (`Promise.all`) instead of after.
+- **Verified live with real server-log timings**: identical repeat search 13.3s → 12ms; a fresh genre/decade browse-row search call ~13s → under 2s for the visible list (enrichment follows separately, 6-12s cold / 6-7ms cached); confirmed in the DOM that only the first N items per row/page get enriched, the rest correctly stay bare until scrolled into view.
+- **Known tradeoff**: the in-memory tier resets on a serverless cold start and isn't shared across concurrent instances — real, but strictly better than the zero-caching baseline, and the DB tier covers the gap. 314 tests passing at the end of this pass. Committed as `d8e1b73`.
+
+## Internal metrics dashboard + Spotify playlist import (2026-07-13, later)
+
+Two items off "Recommended next steps," done together per user request.
+
+**Metrics dashboard** (`/dashboard`) — surfaces the five success-metrics functions from the earlier instrumentation pass, previously script/REPL-only.
+- **Gating**: this app has no role/permission system at all (confirmed by search before building — nothing "admin" anywhere). New `src/lib/admin.ts` (`isAdminEmail()`, pure, tested, fails closed if `ADMIN_EMAIL` is unset) checked in the page itself; a non-matching visitor (including a guest) gets a plain Next.js 404, not a "not authorized" message, so the route's existence isn't advertised. **Requires setting `ADMIN_EMAIL` in Vercel's project env vars** (to whichever email the site owner's Spotify account signs in with) — not yet done as of this writing, so `/dashboard` currently 404s in production for everyone, including the owner.
+- **UI**: no chart library added — `src/components/dashboard/stat-tile.tsx` and `funnel-display.tsx`, built from existing `Card`/`Progress` primitives. Nav link (`dashboard-nav-link.tsx`, desktop-only, mirrors the `CreditsNavLink` pattern) only renders for a signed-in session; real enforcement is server-side.
+- Verified live: guest visiting `/dashboard` gets a real 404 (confirmed via server logs) and the nav link correctly doesn't render for a guest. The actual authenticated dashboard content was **not** visually verified — a mid-session attempt to temporarily bypass the auth check just to preview it was correctly blocked by a safety check (disabling an access-control check isn't done without explicit sign-off, even reversibly), so this still needs a real admin-matching Spotify session to confirm.
+
+**Spotify playlist import** — the highest-payoff deferred Spotify-scope item.
+- `playlist-read-private` added to the OAuth scope string (`src/lib/auth.ts`). Spotify doesn't retroactively grant new scopes to existing sessions, so granted scope is now tracked on the session (`session.scope`, from `account.scope` at sign-in time, persists across token refreshes since Spotify's refresh response never includes `scope`). Already-connected users see a new opt-in "Grant playlist access" prompt in `spotify-connect.tsx` (`signIn("spotify")` again — not a forced re-auth).
+- **`fetchPlaylistLibrary()`** (`spotify/client.ts`) — up to 20 playlists, ~100 tracks each (single page, not deep-paginated), bounded concurrency (5) via the existing `mapWithConcurrency` util, deduped across playlists, never throws (a missing scope 403s and is caught, folded into `fetchFullListeningSnapshot()`'s existing tolerant-of-partial-failure pattern with zero new scope-flag plumbing needed).
+- New `playlistTracks` field end to end: `spotify_snapshot.playlist_tracks` column (migration `0011`) → `SpotifyListeningSnapshot.playlistTracks` → **`derive-profile.ts`**: folded into `collectArtistWeights` (frequency-normalized, coefficient 0.2 — between the explicit-save 0.25 and passive-listen tiers) and `collectAlbumWeights` (flat 0.4 per unique album, below saved-album's 1.0). Routed through the taste vector, not new parallel lookups, so **the existing scoring engine (`engine.ts`) needed zero changes** to pick this signal up.
+- Sync stats (`spotify-sync.tsx`) now mention playlist track counts when present.
+- **Not verified live** (no Spotify OAuth session available in this environment, same recurring caveat as every other Spotify-connected code path in this repo): the actual scope-grant flow, real playlist fetch, and the taste-vector's effect on real Discover picks. Unit tests cover fetch pagination/bounding/dedup/failure-tolerance and the taste-vector weighting math (30 new tests total across both features, 329 total tests passing).
+- Committed as `35384d8`.
+
+## Profile page (2026-07-13, later)
+
+Follow-up question after the above: "should we start adding in the profile section so we can save data?" — clarified via a quick multiple-choice check that this meant a UI hub for data that *already* persists (guest-cookie-to-account merge on Spotify sign-in already handles that), not a new non-Spotify account system.
+
+- **`src/app/(app)/profile/page.tsx`** (new) — works for guests too. Shows the taste-profile summary (genre/decade/mood badges, listening style, pressing preference, deep-cut appetite) with a "Retake quiz" link, embeds the existing `SpotifyConnect` component as-is (so connect/reconnect/grant-playlist-access all just work here), and for signed-in users adds Spotify sync stats and clickable wishlist-count / credit-balance shortcut cards. Pure composition of already-tested data functions — no new logic, no new tests needed.
+- Added to both `app-nav.tsx` and `mobile-nav.tsx` (now 6 tabs) since, unlike the dashboard, this is a mainstream feature for every user, not admin-only.
+- Verified live: guest state renders correctly with real persisted quiz data from earlier in the session; confirmed at 375px that 6 mobile tabs still fit without overflow or breakage. Signed-in-only sections (wishlist/credits cards, Spotify sync stats) not visually verified — same no-OAuth-session caveat as above.
+
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0009_bitter_famine.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0011_yellow_mephistopheles.sql`.
 
 | Table | Purpose |
 |-------|---------|
 | `taste_profile` | Quiz summary (genres, decades, moods, album preference, format preference, deep-cut level) |
 | `quiz_responses` | Sub-genres + album battle preferences + recognized artists (`{owned, seenLive}`) |
 | `analytics_events` | Success-metrics event log — see "Success-metrics instrumentation" |
-| `spotify_snapshot` | Full listening snapshot + derived `taste_vector` |
+| `spotify_snapshot` | Full listening snapshot + derived `taste_vector`; now also `playlist_tracks` (see "Spotify playlist import") |
 | `recommendation_cache` | Scored `Recommendation[]`, 1h expiry |
 | `recommendation_feedback` | like / dislike / own / hide per release |
 | `wishlist_items` | Saved vinyl releases + `priceAtAdd`/`lastAlertedPrice` for price-drop alerts |
 | `price_history` | Daily price snapshots for wishlisted releases (deduped across users) |
 | `offer_cache` | DB-backed cache for the "where to buy" panel — `Offer[]`/`SourceStatus[]` JSON, 6h expiry |
 | `local_shops` | Registered local-shop Shopify storefronts for the "where to buy" panel — see "eBay + affiliate tagging + local-shop sources". Empty by default; no self-serve claim flow yet |
+| `release_enrichment_cache` | DB-backed cache for per-release price/rating/want/have, keyed on release + currency — see "Discover/Search loading performance" |
 | `users`, `credit_ledger`, `orders` | Auth + credits + reservations |
 
 Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/index.ts`.
@@ -474,6 +527,11 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Album back-navigation (context-aware) | `src/components/album/back-link.tsx` |
 | Price history / real fair value | `src/lib/db/queries.ts` (price-history functions), `src/lib/recommendations/fair-value.ts` (`applyHistoricalFairValue`) |
 | Price-drop alerts | `src/lib/commerce/price-alerts.ts` (pure logic), `src/lib/email/price-drop-alert.ts` (template), `src/lib/email/send.ts` (Resend wrapper), `src/app/api/cron/snapshot-prices/route.ts` |
+| Discover infinite-scroll browse rows | `src/lib/recommendations/browse-rows.ts`, `src/components/discover/browse-row.tsx`, `src/hooks/use-in-view.ts` |
+| Enrichment caching (in-memory + DB) | `src/lib/utils/ttl-cache.ts`, `src/lib/recommendations/enrich.ts`, `src/app/api/discogs/enrich/route.ts` |
+| Metrics dashboard | `src/app/(app)/dashboard/page.tsx`, `src/lib/admin.ts`, `src/components/dashboard/` |
+| Spotify playlist import | `src/lib/spotify/client.ts` (`fetchPlaylistLibrary`), `src/lib/auth.ts` (scope tracking), `src/types/next-auth.d.ts` |
+| Profile page | `src/app/(app)/profile/page.tsx` |
 
 ## API routes
 
@@ -485,7 +543,8 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | `POST /api/feedback` | Recommendation signals; clears cache |
 | `GET/POST/DELETE /api/wishlist` | Auth required; `POST` now also captures `priceAtAdd` |
 | `POST /api/reservations` | Spend credits on listing hold; response now includes a fresh `reservationCount` and `cap` for that release; 409 once the reservation cap is reached |
-| `GET /api/discogs/search` | Full-catalog vinyl search, guest-accessible, no auth (`maxDuration: 30`) |
+| `GET /api/discogs/search` | Full-catalog vinyl search, guest-accessible, no auth (`maxDuration: 15`). No longer enriches — returns the raw list only (see "Discover/Search loading performance") |
+| `POST /api/discogs/enrich` | New — enriches a client-supplied batch of items with price/rating/fair-value (`maxDuration: 30`); called as a background follow-up to the search route above |
 | `GET /api/discogs/release`, `/marketplace` | Release, marketplace proxies |
 | `GET /api/cron/snapshot-prices` | Vercel Cron only — `Authorization: Bearer $CRON_SECRET` (`maxDuration: 120`) |
 | `POST /api/analytics/event` | Client-side analytics beacon; only accepts `CLIENT_LOGGABLE_EVENT_TYPES` (currently just `search_result_click`) |
@@ -498,7 +557,7 @@ Copy `.env.example` → `.env.local`. Required for full functionality:
 - `DISCOGS_TOKEN`
 - `DATABASE_URL` (defaults to local SQLite file)
 
-Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending), `SERPAPI_KEY` (Google Shopping meta-search for the album "Where to buy" panel; omitted = panel shows the Discogs offer only), `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` (eBay Browse API offer source; omitted = source skipped), `EBAY_CAMPAIGN_ID` (eBay Partner Network affiliate tagging; only meaningful with the eBay creds above), `SKIMLINKS_PUBLISHER_ID` (affiliate-tags Google Shopping / local-shop offer links via Skimlinks; omitted = those links stay direct, no affiliate disclosure shown) — see "eBay + affiliate tagging + local-shop sources".
+Optional: `LASTFM_API_KEY` (similar-artist discovery), `TURSO_*` (persistent prod DB), `CRON_SECRET` (required for `/api/cron/snapshot-prices` to accept requests — see "Price history & deals"), `RESEND_API_KEY`/`RESEND_FROM_EMAIL` (price-drop alert emails; omitted = cron still snapshots prices, just skips sending), `SERPAPI_KEY` (Google Shopping meta-search for the album "Where to buy" panel; omitted = panel shows the Discogs offer only), `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` (eBay Browse API offer source; omitted = source skipped), `EBAY_CAMPAIGN_ID` (eBay Partner Network affiliate tagging; only meaningful with the eBay creds above), `SKIMLINKS_PUBLISHER_ID` (affiliate-tags Google Shopping / local-shop offer links via Skimlinks; omitted = those links stay direct, no affiliate disclosure shown) — see "eBay + affiliate tagging + local-shop sources". `ADMIN_EMAIL` (gates `/dashboard` to the one signed-in email that matches — see "Internal metrics dashboard"; unset means the dashboard 404s for everyone, including the owner — **not yet set in the Vercel production env**).
 
 A missing `DISCOGS_TOKEN` fails fast with an actionable error (pointing at discogs.com/settings/developers) instead of a cryptic upstream `401 Invalid consumer token` — a personal access token is enough; no app registration needed. Note `.env.local` is per-directory, so each git worktree needs its own copy.
 
@@ -523,12 +582,12 @@ npm run db:push
 
 | Item | Notes |
 |------|-------|
-| **Playlist import** | Needs `playlist-read-private` OAuth scope; existing users must re-auth |
 | **ML / embeddings** | Still rule-based heuristic scoring; no learned weights |
-| **Metrics dashboard UI** | Success metrics are instrumented and queryable (see "Success-metrics instrumentation" above) but there's no page/route surfacing them yet — only callable from a script/REPL |
 | **Cross-browser-engine testing** | UI/mobile verification in this repo has been done via the Chromium-based preview tooling only (viewport resizing for mobile/tablet); Firefox/Safari rendering has not been separately verified |
 | **Verified email sending domain** | Price-drop alerts work end-to-end locally, but Resend (like any transactional email provider) requires a verified sending domain before it can email real users — currently only the developer's own Resend-verified address can receive mail |
-| **Live Vercel deployment** | The cron schedule in `vercel.json` only actually fires once deployed with `CRON_SECRET` set in the project's env vars — this is still a local-dev-only project |
+| **`ADMIN_EMAIL` not set in production** | `/dashboard` is built and deployed but 404s for everyone until this is set in Vercel's project env vars — see "Internal metrics dashboard" |
+| **Real Spotify-connected verification** | A recurring, compounding gap: no Spotify OAuth session has been available in this environment across many sessions of work now. Playlist import's actual scope-grant flow, the taste-vector weight rebalance, quiz round-out's scoring effect, and the dashboard's authenticated view are all unit-tested/code-reviewed but not observed end-to-end on a real connected account. Worth a dedicated pass logging in with a real account and just looking at what changed. |
+| **Non-Spotify account creation** | Considered and deliberately not built when scoping the profile page — guest data already persists via the cookie-to-account merge on Spotify sign-in, so this would only matter for someone who wants a persistent account *without* connecting Spotify. Not clearly worth the added auth-method complexity unless that turns out to be a real ask. |
 
 ## Recommended next steps
 
@@ -539,8 +598,11 @@ North star: best vinyl-searching site + best deals on vinyl. Roughly in priority
 3. ~~**Instrument the success metrics that already exist on paper**~~ — done, see "Success-metrics instrumentation" above. Next natural step here (not started): a real dashboard/route surfacing these instead of script-only access, once there's enough data accumulated for the numbers to be meaningful.
 4. ~~**Round out the quiz**~~ — done, see "Reservation scarcity cap + rounding out the quiz" above.
 5. ~~**Decide reservation scarcity's teeth**~~ — done (capped at `min(numForSale, 5)`), see "Reservation scarcity cap + rounding out the quiz" above.
-6. **Playlist import** — highest user-visible payoff of the deferred Spotify-scope work, but forces a re-auth for existing connected users, so bundle it with another scope-touching change rather than shipping alone.
-7. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics in (3) accumulate enough data to show the heuristic approach actually plateauing.
+6. ~~**Playlist import**~~ — done, see "Internal metrics dashboard + Spotify playlist import" above.
+7. ~~**Metrics dashboard UI**~~ — done, see same section above. **Needs `ADMIN_EMAIL` set in Vercel to actually be reachable in production.**
+8. ~~**Discover/Search felt limited**~~ — done, see "Netflix-style infinite scroll for Discover + Search" and "Discover/Search loading performance" above.
+9. **A real Spotify-connected verification pass** — the single highest-value next step isn't a new feature, it's confirming the last several sessions' worth of Spotify-path work (weight rebalance, quiz round-out scoring, playlist import, dashboard) actually behaves as intended on a real connected account. See the new Deferred entry.
+10. **ML/embeddings and cross-browser QA** are lower priority right now: the heuristic scoring is legible and debuggable (a real advantage while the product is still finding its shape), and the app is Chromium-verified with no reported cross-engine issues — revisit both once the metrics dashboard accumulates enough real data to show the heuristic approach actually plateauing.
 
 ## Known constraints
 
@@ -554,10 +616,12 @@ North star: best vinyl-searching site + best deals on vinyl. Roughly in priority
 - **`/search` is public with no abuse protection** — the route is guest-accessible by design, but nothing beyond the shared `discogsThrottle` limits one client from monopolizing the app's whole Discogs request budget (quiz-gating incidentally did this for Discover before). See "Catalog search" above.
 - **Price-drop emails need a verified sending domain** — see "Price history & deals" above and the new Deferred entry.
 - **Search filter clicks abort client-side but not server-side** — `SearchFeed`'s `AbortController` (see "Search filters" above) stops a stale response from clobbering the UI, but the aborted request's Discogs calls already in flight on the server keep running to completion regardless. Rapid-fire filter changes still cost real Discogs quota per click; a debounce on filter changes (not just the abort) would be the next step if this becomes a real problem.
+- **Discover/Search enrichment cache is partially in-memory** — the fast tier (`ttl-cache.ts`) resets on a serverless cold start and isn't shared across concurrent instances, so production won't see the same hit rate a warm local session does. The DB-backed tier (`release_enrichment_cache`) covers this gap but adds a DB round trip per lookup — see "Discover/Search loading performance."
+- **Discover's browse rows are catalog-relevance, not taste-vector-scored** — only the first couple of rows (Top Picks, up to 2 genre rows) are scored against the user's taste vector; everything reached by scrolling further is a live Discogs query (genre/decade/most-wanted), so titles can repeat across rows. Intentional (Netflix does the same), documented in "Netflix-style infinite scroll" above.
 
-## Success metrics (from roadmap — instrumented 2026-07-09)
+## Success metrics (from roadmap — instrumented 2026-07-09, dashboard shipped 2026-07-13)
 
-See "Success-metrics instrumentation" above for the how. No dashboard UI yet — call these from a script/REPL:
+See "Success-metrics instrumentation" and "Internal metrics dashboard" above. Viewable at `/dashboard` once `ADMIN_EMAIL` is set (not yet done in production); also still directly callable from a script/REPL:
 
 - `getReasonCitationRate()` — % of recommendations with specific reasons citing saved/recent/core taste
 - `getFeedbackLikeRateBySource()` — feedback `like` rate: Spotify-connected vs quiz-only

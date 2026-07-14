@@ -198,6 +198,10 @@ export interface Recommendation {
   /** Top-quartile demand (want/have ratio) at bottom-quartile price, relative
    * to the rest of the batch it was scored in. See fair-value.ts. */
   fairValue?: boolean;
+  /** Average color of this release's own cover art, e.g. "#a4622f" — tints
+   * that poster's glow and vinyl-peek label instead of one flat accent
+   * everywhere. See lib/covers/color.ts. Absent until enrichment runs. */
+  coverColor?: string | null;
 }
 
 export interface SearchPagination {

@@ -1,6 +1,7 @@
 import type { Recommendation, RecommendationMarketplace } from "@/lib/types";
 import { getAccountCurrency, getReleaseEnrichment } from "@/lib/discogs/client";
 import { getCachedReleaseEnrichments, cacheReleaseEnrichment } from "@/lib/db/queries";
+import { getCoverColorsForReleases } from "@/lib/covers/color";
 
 export interface EnrichmentData {
   communityRating: number | null;
@@ -70,21 +71,28 @@ export async function enrichRecommendations(
   );
   const currency = await getAccountCurrency(orderedByWant[0].discogsReleaseId);
 
-  const enrichmentByRelease = await getEnrichmentForReleases(
-    orderedByWant.map((r) => r.discogsReleaseId),
-    currency,
-  );
+  const [enrichmentByRelease, coverColorByRelease] = await Promise.all([
+    getEnrichmentForReleases(
+      orderedByWant.map((r) => r.discogsReleaseId),
+      currency,
+    ),
+    getCoverColorsForReleases(recommendations),
+  ]);
 
   return recommendations.map((rec) => {
     const data = enrichmentByRelease.get(rec.discogsReleaseId);
-    if (!data) return rec;
+    const coverColor = coverColorByRelease.get(rec.discogsReleaseId);
+    if (!data && coverColor === undefined) return rec;
     return {
       ...rec,
-      communityRating: data.communityRating ?? rec.communityRating,
-      ratingCount: data.ratingCount ?? rec.ratingCount,
-      wantCount: data.wantCount ?? rec.wantCount,
-      haveCount: data.haveCount ?? rec.haveCount,
-      marketplace: data.marketplace,
+      ...(data && {
+        communityRating: data.communityRating ?? rec.communityRating,
+        ratingCount: data.ratingCount ?? rec.ratingCount,
+        wantCount: data.wantCount ?? rec.wantCount,
+        haveCount: data.haveCount ?? rec.haveCount,
+        marketplace: data.marketplace,
+      }),
+      ...(coverColor !== undefined && { coverColor }),
     };
   });
 }

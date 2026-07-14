@@ -13,6 +13,7 @@ import {
   localShops,
   offerCache,
   releaseEnrichmentCache,
+  coverColorCache,
   analyticsEvents,
 } from "../../../drizzle/schema";
 import { db, ensureDb } from "./index";
@@ -1074,6 +1075,34 @@ export async function cacheReleaseEnrichment(
       target: [releaseEnrichmentCache.discogsReleaseId, releaseEnrichmentCache.currency],
       set: values,
     });
+}
+
+/** Batch-reads cached cover-art colors for a set of releases in one query —
+ * same "one round trip, not one per release" motivation as
+ * `getCachedReleaseEnrichments`. No expiry check: see `coverColorCache`. */
+export async function getCachedCoverColors(
+  discogsReleaseIds: number[],
+): Promise<Map<number, string>> {
+  await ensureDb();
+  if (discogsReleaseIds.length === 0) return new Map();
+
+  const rows = await db
+    .select()
+    .from(coverColorCache)
+    .where(inArray(coverColorCache.discogsReleaseId, discogsReleaseIds))
+    .all();
+
+  return new Map(rows.map((row) => [row.discogsReleaseId, row.color]));
+}
+
+export async function cacheCoverColor(discogsReleaseId: number, color: string): Promise<void> {
+  await ensureDb();
+  const values = { discogsReleaseId, color, createdAt: new Date() };
+
+  await db
+    .insert(coverColorCache)
+    .values(values)
+    .onConflictDoUpdate({ target: coverColorCache.discogsReleaseId, set: values });
 }
 
 // --- Analytics events ---------------------------------------------------

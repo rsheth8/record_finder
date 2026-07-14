@@ -1,6 +1,6 @@
 # Record Finder — Handoff
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## What this is
 
@@ -140,15 +140,15 @@ Quiz responses stored separately in `quiz_responses` (album preferences + sub-ge
 
 ## UI, theming & ambient scene
 
-**Themes** (`src/lib/themes.ts`) — six full themes, each defining `--color-*` custom properties and a display font: `record-store-noir` (default), `midnight-wax`, `analog-warmth`, `neon-crate`, `hifi-minimal`, `jazz-club`. Selection persists in `localStorage` (`record-finder-theme`) via `ThemeProvider` (`src/components/theme-provider.tsx`), which reads through `useSyncExternalStore` (SSR-safe, no setState-in-effect) and sets `data-theme` on `<html>`. Picker UI: `theme-picker.tsx`; per-theme font swap: `theme-font-sync.tsx`.
+**Theme** (`src/lib/themes.ts`) — a single locked-in look, **Late Session** (ink blue + jukebox neon — violet primary accent, magenta secondary — a listening bar after last call), with hand-tuned light and dark variants rather than the six swappable themes this app used to have. `ThemeMode` (`"dark" | "light"`) persists in `localStorage` (`record-finder-mode`) via `ThemeProvider` (`src/components/theme-provider.tsx`, `useSyncExternalStore`-based) and sets `data-theme` on `<html>`. Toggle UI: `mode-toggle.tsx` (sun/moon button, replaces the old multi-theme `theme-picker.tsx`). One font pair only now (Geist Sans + Fraunces) — no more per-theme font swap, so `theme-font-sync.tsx` is gone.
 
-**Ambient scene** — the four dark "cinematic" themes (`IMMERSIVE_THEMES` / `isImmersiveTheme()`: record-store-noir, midnight-wax, neon-crate, jazz-club) render a slow-spinning **CSS vinyl record** in the hero plus glow orbs, a raking light beam, vignette, and floor glow. Light/minimal themes (analog-warmth, hifi-minimal) stay clean. All scene colors derive from theme accent/surface tokens via `color-mix`, so it recolors per theme automatically. Components: `noir/noir-atmosphere.tsx`, `home/noir-hero.tsx`; styles in `src/app/globals.css`. Everything honors `prefers-reduced-motion` (`src/hooks/use-reduced-motion.ts`).
+**Ambient scene** — dark mode only (`mode === "dark"`) renders a slow-spinning **CSS vinyl record** in the hero plus soft glow orbs, a raking light beam, and a vignette; light mode stays clean paper. Components: `noir/noir-atmosphere.tsx`, `home/noir-hero.tsx`; styles in `src/app/globals.css`. A prior bug had **two separate noise-texture (`feTurbulence`) overlays stacked on top of each other site-wide** (`ambient-background.tsx` + `noir-atmosphere.tsx` each drawing their own grain layer) — this read as a fuzzy/staticky background and was the top user complaint about the look. Fixed by deleting `ambient-background.tsx` entirely and dropping the turbulence noise from what remains; the scene is now smooth gradients/vignette only. Everything honors `prefers-reduced-motion` (`src/hooks/use-reduced-motion.ts`).
 
 > **Note:** an earlier heavier WebGL/three.js scene rendered near-invisible and was replaced by the CSS scene above. `three` / `@react-three/*` have been removed — do not reintroduce them.
 
 **Layout** — `app-shell.tsx` wraps pages with the atmosphere, desktop `app-nav.tsx`, and a mobile bottom-tab `mobile-nav.tsx` (auto-hides on `/album/*`, which uses a sticky action bar instead). Page/stagger transitions: `src/components/motion/`.
 
-**Discover / album UI** — poster cards (`discover/poster-card.tsx`) with dark-glass price + rating + fair-value badges (stacked top-left) and a vinyl "no cover art" placeholder; carousels via Embla (`discover/carousel-row.tsx`); grid (`discover/discover-grid.tsx`). Filters (`discover/discover-filters.tsx`) cover search, genre, decade, sort (incl. price-low), min rating, deep-cut-only, for-sale-only, max price, format, and good-value-only. The discover feed (`discover/discover-feed.tsx`) shows an "auto-refreshes in Xm" hint next to the refresh button, driven by a `useNowMinute()` hook (`src/hooks/use-now-minute.ts`, `useSyncExternalStore`-based to avoid a hydration mismatch on "current time").
+**Discover / album UI** — poster cards (`discover/poster-card.tsx`) with dark-glass price + rating + fair-value badges (stacked top-left), a cursor-tracked 3D tilt, and a vinyl-peek hover reveal (see "Interactive polish" below); a vinyl "no cover art" placeholder; carousels via Embla (`discover/carousel-row.tsx`, centers short rows, always-on edge fades); grid (`discover/discover-grid.tsx`). Filters (`discover/discover-filters.tsx`) cover search, genre, decade, sort (incl. price-low), min rating, deep-cut-only, for-sale-only, max price, format, and good-value-only. The discover feed (`discover/discover-feed.tsx`) shows an "auto-refreshes in Xm" hint next to the refresh button, driven by a `useNowMinute()` hook (`src/hooks/use-now-minute.ts`, `useSyncExternalStore`-based to avoid a hydration mismatch on "current time").
 
 The album page's presentation is extracted into `components/album/album-detail.tsx` (the route just fetches data); buy/reserve/wishlist actions in `album/album-actions.tsx` (a single button row with concierge helper text below). "More like this" (`album/similar-releases.tsx`), pressing comparison (`album/compare-pressings.tsx`), and — on the home page — listening-intent nudges (`home/listening-intent-row.tsx`) are each async Server Components streamed in behind a `<Suspense>` boundary, since they do slower per-item Discogs enrichment/validation that shouldn't block the rest of the page.
 
@@ -485,9 +485,22 @@ User complaint: the "own on vinyl / seen live" artist-recognition step and the a
 - **Not fixed, flagged during this pass**: a latent dead-code bug in `derive-profile.ts` (album-battle winner/loser weights never apply to the Spotify taste vector because the synthetic `battle:<id>:A/B` ids never match real Spotify album ids) and the fact that 11 of 18 genres have zero curated album-battle pairs today (falls back to an unrelated genre's pair) — both pre-existing, out of scope for this pass.
 - **Verified live**: the guest quiz path end-to-end (background step, skippable connectSpotify step via Continue, beginner-tier pool swap for `"new"`, unchanged pool for `"casual"`/`"collector"`), and `/profile` rendering the two new fields. **Not verified**: the actual mid-quiz Spotify OAuth round-trip and tailored-pool rendering — no real Spotify OAuth session available in this environment, same recurring caveat as every other Spotify-connected code path in this repo. Needs a real-account pass.
 
+## Late Session theme lock-in + interactive polish (2026-07-14)
+
+User feedback, three rounds: first that the multi-theme picker should be replaced with one locked-in look plus light/dark, and that the background looked "fuzzy and grainy"; then, after that shipped, that the app still "feels dead" and needed real interactivity; then, after *that* shipped, that the first attempt at the locked-in look ("Dust Jacket" — slate + soft clay) had the wrong mood entirely. For the palette pivot, built a 4-option visual comparison (Artifact, not live code) spanning distinctly different moods — cooler/moodier, warmer/brighter, bold single-accent, vibrant/playful — rather than guessing again; user picked **Late Session** (ink blue + jukebox violet/magenta neon).
+
+- **Theme lock-in + background fix** — see "UI, theming & ambient scene" above for the end state. Root cause of "fuzzy and grainy": two independent `feTurbulence` grain overlays (`ambient-background.tsx` and `noir-atmosphere.tsx`) were stacking on every page; deleted the redundant one and dropped noise entirely from what's left.
+- **Cursor-reactive hero** (`home/noir-hero.tsx`) — the hero vinyl and its spotlight glow now drift toward the cursor via `gsap.quickTo` on `pointermove` (dark mode only), tuned to compose with the disc's existing continuous-spin CSS animation on a nested element rather than fighting over the same `transform`. **Not visually confirmed in this environment** — this preview browser's tab reports `document.hidden === true`, so `requestAnimationFrame` (which GSAP's ticker depends on, along with the *pre-existing* ambient-orb drift) never ticks here; confirmed the dispatched `pointermove` handler itself runs with correct math via a temporary debug log, and confirmed the pre-existing orb animation is equally inert in this same environment, before ruling this out as a real bug. Needs a look in an actual browser tab.
+- **Tilt-on-hover poster cards** (`discover/poster-card.tsx`) — cursor position within the card drives a small `rotateX`/`rotateY` (±7° at the edge) on the sleeve via plain React state + inline style, independent of the Wrapper's existing framer-motion lift/scale (different nested elements, so the two transforms compose instead of colliding). This one **is** confirmed working (state-driven, not rAF-gated) — verified via a dispatched `pointermove` producing the expected `rotateX(5.6deg) rotateY(-5.6deg)`.
+- **Vinyl-peek hover reveal** (`discover/poster-card.tsx`, `.vinyl-peek*` in `globals.css`) — a record sits behind the sleeve (cover art); on hover the sleeve slides down ~9% (`group-hover:translate-y-[9%]`, pure CSS/Tailwind, skipped under `motion-reduce`) so the disc's grooves peek out above it, like it's being pulled partway out. Theme-independent (tinted via `--vinyl-color`/`--color-accent`, not hardcoded), so it survived the Dust Jacket → Late Session palette swap with zero changes. Confirmed rendering correctly by forcing the slide transform directly in devtools (this environment's `:hover` pseudo-class isn't reliably triggerable via the automation tooling either, same root cause as above).
+- **Per-album cover color** (`src/lib/covers/color.ts`, `Recommendation.coverColor`) — the vinyl-peek label and glow are tinted from that specific release's own average cover-art color instead of one flat accent everywhere. Computed server-side with `sharp` (already a transitive dependency, no new package needed): fetch the cover image, resize to 8×8, average the RGB. DB-cached indefinitely in a new `cover_color_cache` table (migration `0013_neat_yellow_claw.sql`) — unlike price/rating enrichment, cover art never changes, so there's no TTL. Wired into `enrichRecommendations()` (`recommendations/enrich.ts`) alongside the existing price/rating enrichment, run in parallel. Verified end-to-end against real Discogs cover art (not just the unit tests' synthetic solid-color images): cleared and re-ran recommendation generation, confirmed 50 real, varied hex colors landed in the DB cache and rendered on real poster cards.
+- **Dust Jacket → Late Session palette swap** — every `--color-*` token in `globals.css` (both light and dark), plus the few hardcoded rgba tints on `.poster-sleeve`, `.poster-overlay-gradient`, `.noir-glass`, and `header` that referenced the old clay accent directly, were swapped to the new ink/violet/magenta values. The ambient scene (orbs, vinyl sheen, beam) needed **no changes** — it was already built to derive its colors from `--color-accent`/`--color-accent-secondary` via `color-mix()`, so it recolored automatically. Hero badge label updated to "Late Session".
+- 4 new tests (`covers/color.test.ts`, deterministic via a solid-color PNG generated with `sharp` itself) + 1 new test on `enrichRecommendations`'s cover-color merge path — 346 total project tests, clean `tsc`/lint.
+- **Not yet verified**: the hero parallax and vinyl-peek reveal's actual on-screen motion/appearance in a real, focused browser tab (see caveats above) — ask the user to eyeball these, and the new palette, on a real device before calling this pass fully done.
+
 ## Database schema
 
-Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0012_silly_serpent_society.sql`.
+Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0013_neat_yellow_claw.sql`.
 
 | Table | Purpose |
 |-------|---------|
@@ -502,6 +515,7 @@ Schema: `drizzle/schema.ts`. Latest migration: `drizzle/migrations/0012_silly_se
 | `offer_cache` | DB-backed cache for the "where to buy" panel — `Offer[]`/`SourceStatus[]` JSON, 6h expiry |
 | `local_shops` | Registered local-shop Shopify storefronts for the "where to buy" panel — see "eBay + affiliate tagging + local-shop sources". Empty by default; no self-serve claim flow yet |
 | `release_enrichment_cache` | DB-backed cache for per-release price/rating/want/have, keyed on release + currency — see "Discover/Search loading performance" |
+| `cover_color_cache` | Per-release average cover-art color (no TTL — cover art never changes) — see "Late Session theme lock-in + interactive polish" |
 | `users`, `credit_ledger`, `orders` | Auth + credits + reservations |
 
 Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/index.ts`.
@@ -545,6 +559,10 @@ Queries: `src/lib/db/queries.ts`. Migrations run on app startup via `src/lib/db/
 | Spotify playlist import | `src/lib/spotify/client.ts` (`fetchPlaylistLibrary`), `src/lib/auth.ts` (scope tracking), `src/types/next-auth.d.ts` |
 | Profile page | `src/app/(app)/profile/page.tsx` |
 | Quiz redesign (experience level, Spotify-tailored questions) | `src/components/quiz/quiz-flow.tsx`, `src/lib/quiz/spotify-pool.ts`, `src/lib/quiz/recognized-artists.ts`, `src/lib/quiz/album-battles.ts` |
+| Late Session theme + mode toggle | `src/lib/themes.ts`, `src/components/theme-provider.tsx`, `src/components/mode-toggle.tsx`, `src/app/globals.css` |
+| Cover-color extraction | `src/lib/covers/color.ts`, `src/lib/recommendations/enrich.ts` |
+| Poster tilt + vinyl-peek reveal | `src/components/discover/poster-card.tsx` |
+| Hero cursor parallax | `src/components/home/noir-hero.tsx` |
 
 ## API routes
 

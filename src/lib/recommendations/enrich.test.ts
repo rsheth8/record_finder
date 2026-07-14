@@ -12,8 +12,13 @@ vi.mock("@/lib/db/queries", () => ({
   cacheReleaseEnrichment: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/covers/color", () => ({
+  getCoverColorsForReleases: vi.fn().mockResolvedValue(new Map()),
+}));
+
 import { getAccountCurrency, getReleaseEnrichment } from "@/lib/discogs/client";
 import { getCachedReleaseEnrichments, cacheReleaseEnrichment } from "@/lib/db/queries";
+import { getCoverColorsForReleases } from "@/lib/covers/color";
 
 function rec(overrides: Partial<Recommendation>): Recommendation {
   return {
@@ -143,5 +148,16 @@ describe("enrichRecommendations", () => {
     const result = await enrichRecommendations(input);
 
     expect(result[0]).toEqual(input[0]);
+  });
+
+  it("merges a cover color into a matching rec without needing price/rating enrichment", async () => {
+    vi.mocked(getCachedReleaseEnrichments).mockResolvedValue(new Map());
+    vi.mocked(getReleaseEnrichment).mockResolvedValue(null);
+    vi.mocked(getCoverColorsForReleases).mockResolvedValue(new Map([[6, "#a4622f"]]));
+
+    const input = [rec({ discogsReleaseId: 6, coverUrl: "https://example.com/cover.jpg" })];
+    const result = await enrichRecommendations(input);
+
+    expect(result[0].coverColor).toBe("#a4622f");
   });
 });

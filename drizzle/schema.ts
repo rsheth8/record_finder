@@ -190,6 +190,19 @@ export const releaseEnrichmentCache = sqliteTable("release_enrichment_cache", {
   ),
 }));
 
+// A release's dominant cover-art color (used to tint that poster's glow and
+// its vinyl-peek label — see poster-card.tsx) never changes once the art is
+// set, unlike price/rating above, so this has no TTL/expiry — one row per
+// release, forever.
+export const coverColorCache = sqliteTable("cover_color_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  discogsReleaseId: integer("discogs_release_id").notNull(),
+  color: text("color").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => ({
+  releaseIdx: uniqueIndex("cover_color_cache_release_idx").on(t.discogsReleaseId),
+}));
+
 // Raw success-metrics event log (recommendation generation, feedback, sync,
 // search, reservations, email clicks) — see lib/db/queries.ts's `logEvent()`
 // and lib/analytics/metrics.ts for the pure aggregation functions that turn

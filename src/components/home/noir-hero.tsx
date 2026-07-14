@@ -25,13 +25,14 @@ export function NoirHero({
 }) {
   const reducedMotion = useReducedMotion();
   const { mode } = useTheme();
-  const themeLabel = "Dust Jacket";
+  const themeLabel = "Late Session";
   const isImmersive = mode === "dark";
   const sectionRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const subtitleRef = useRef<HTMLParagraphElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
+  const vinylWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (reducedMotion || !sectionRef.current) return;
@@ -58,6 +59,47 @@ export function NoirHero({
     return () => ctx.revert();
   }, [reducedMotion]);
 
+  // The vinyl and its spotlight drift toward the cursor — the record's own
+  // continuous spin is a separate CSS animation on a nested element
+  // (.noir-vinyl), so this parallax transform on the wrapper composes with
+  // it instead of fighting over the same `transform`. quickTo tweens toward
+  // the latest target instead of queuing, so a fast mouse doesn't leave a
+  // backlog of animations to play out.
+  useEffect(() => {
+    if (reducedMotion || !isImmersive || !sectionRef.current) return;
+    const section = sectionRef.current;
+
+    const vinylX = vinylWrapRef.current
+      ? gsap.quickTo(vinylWrapRef.current, "x", { duration: 0.7, ease: "power3.out" })
+      : null;
+    const vinylY = vinylWrapRef.current
+      ? gsap.quickTo(vinylWrapRef.current, "y", { duration: 0.7, ease: "power3.out" })
+      : null;
+    const vinylRotate = vinylWrapRef.current
+      ? gsap.quickTo(vinylWrapRef.current, "rotation", { duration: 0.7, ease: "power3.out" })
+      : null;
+    const glowX = glowRef.current
+      ? gsap.quickTo(glowRef.current, "x", { duration: 0.9, ease: "power3.out" })
+      : null;
+    const glowY = glowRef.current
+      ? gsap.quickTo(glowRef.current, "y", { duration: 0.9, ease: "power3.out" })
+      : null;
+
+    function handlePointerMove(e: PointerEvent) {
+      const rect = section.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width - 0.5;
+      const py = (e.clientY - rect.top) / rect.height - 0.5;
+      vinylX?.(px * 24);
+      vinylY?.(py * 24);
+      vinylRotate?.(px * 6);
+      glowX?.(px * 40);
+      glowY?.(py * 40);
+    }
+
+    section.addEventListener("pointermove", handlePointerMove);
+    return () => section.removeEventListener("pointermove", handlePointerMove);
+  }, [reducedMotion, isImmersive]);
+
   return (
     <section
       ref={sectionRef}
@@ -79,7 +121,7 @@ export function NoirHero({
       {isImmersive && <div ref={glowRef} className="noir-hero__spotlight" />}
 
       {isImmersive && (
-        <div className="noir-vinyl-wrap hidden md:block" aria-hidden>
+        <div ref={vinylWrapRef} className="noir-vinyl-wrap hidden md:block" aria-hidden>
           <div className="noir-vinyl">
             <div className="noir-vinyl__grooves" />
             <div className="noir-vinyl__label" />

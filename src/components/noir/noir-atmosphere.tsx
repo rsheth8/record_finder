@@ -13,7 +13,7 @@ export function NoirAtmosphere() {
   const orb3Ref = useRef<HTMLDivElement>(null);
 
   // The ambient scene (spinning vinyl, glow orbs, light beam) only suits the
-  // dark, dim-record-shop take on Dust Jacket — light mode stays clean paper.
+  // dark, after-hours take on Late Session — light mode stays clean and flat.
   const isImmersive = mode === "dark";
 
   useEffect(() => {

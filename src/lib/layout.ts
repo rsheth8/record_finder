@@ -24,3 +24,11 @@ export const BLEED_PR = "pr-4 sm:pr-[max(1rem,calc((100vw-72rem)/2+1rem))]";
  * the first/last card's own artwork instead of just the empty margin.
  */
 export const BLEED_FADE_W = "w-4 sm:w-[max(1rem,calc((100vw-72rem)/2+1rem))]";
+
+/**
+ * `left` offset matching the same gutter formula — positions an absolutely
+ * placed control (e.g. a carousel's left scroll arrow) exactly at the page's
+ * content-column edge inside a full-bleed row, so it overlays the first card
+ * rather than floating out in the empty bleed margin on wide screens.
+ */
+export const BLEED_LEFT = "left-4 sm:left-[max(1rem,calc((100vw-72rem)/2+1rem))]";

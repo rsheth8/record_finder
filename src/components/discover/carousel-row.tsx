@@ -7,7 +7,7 @@ import type { EmblaOptionsType, EmblaPluginType } from "embla-carousel";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { Recommendation } from "@/lib/types";
 import { PosterCard } from "@/components/discover/poster-card";
-import { BLEED_PL, BLEED_PR, BLEED_FADE_W } from "@/lib/layout";
+import { BLEED_PL, BLEED_PR, BLEED_FADE_W, BLEED_LEFT } from "@/lib/layout";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
@@ -60,25 +60,26 @@ export function CarouselRow({
   const [isHovered, setIsHovered] = useState(false);
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
+  // Whether every slide fits without scrolling — only then is it safe to
+  // center them (see the track's className). Defaults false so an overflowing
+  // row is start-aligned from the first paint (centering an overflowing flex
+  // row clips its first and last cards, which is exactly what we're avoiding).
+  const [fits, setFits] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Looping is required for a seamless continuous drift; without auto-scroll
-  // we keep the snap-to-edges behavior (trimSnaps) the browse rows rely on.
-  // `slidesToScroll: "auto"` groups slides into whole-viewport "pages" for
-  // snap points — fine for the arrow buttons (a deliberate page-at-a-time
-  // jump), but with `dragFree: false` a manual swipe/drag *also* snapped to
-  // those same page-sized points, so even a small drag could jump 4-5 cards
-  // at once instead of tracking the finger. `dragFree: true` decouples
-  // dragging from the snap grid — it free-scrolls with momentum and settles
-  // wherever it lands, while `scrollNext`/`scrollPrev` (the buttons) are
-  // unaffected and still jump by full pages.
+  // Browse rows snap one card at a time (`slidesToScroll: 1`, no `dragFree`):
+  // a drag settles on the nearest whole card instead of flinging a full page,
+  // and there's no dragFree/auto-snap index desync (which caused arrow clicks
+  // to jump backward then forward). The arrows still page through several
+  // cards at once — see `scrollByPage`. Auto-scroll showcase rows keep the
+  // grouped "auto" snaps + loop the continuous drift needs.
   const emblaOptions = useMemo<EmblaOptionsType>(
     () => ({
       loop: enableAutoScroll,
       align: "start",
-      dragFree: !enableAutoScroll,
+      dragFree: false,
       containScroll: enableAutoScroll ? false : "trimSnaps",
-      slidesToScroll: "auto",
+      slidesToScroll: enableAutoScroll ? "auto" : 1,
     }),
     [enableAutoScroll],
   );
@@ -100,13 +101,30 @@ export function CarouselRow({
 
   const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions, emblaPlugins);
 
-  const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
-  const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
+  // With per-card snapping the arrows would otherwise nudge a single card at a
+  // time; page through by the number of fully-visible cards instead so a click
+  // advances a satisfying chunk. `slidesInView()` counts partials too (the
+  // peek card), so `- 1` pages by whole cards and leaves the card you were
+  // peeking as the new leading card. `scrollTo` clamps at the ends via
+  // trimSnaps, so this can't overshoot.
+  const scrollByPage = useCallback(
+    (direction: 1 | -1) => {
+      if (!emblaApi) return;
+      const page = Math.max(1, emblaApi.slidesInView().length - 1);
+      emblaApi.scrollTo(emblaApi.selectedScrollSnap() + direction * page);
+    },
+    [emblaApi],
+  );
+  const scrollPrev = useCallback(() => scrollByPage(-1), [scrollByPage]);
+  const scrollNext = useCallback(() => scrollByPage(1), [scrollByPage]);
 
   const updateScrollButtons = useCallback(() => {
     if (!emblaApi) return;
-    setCanScrollPrev(emblaApi.canScrollPrev());
-    setCanScrollNext(emblaApi.canScrollNext());
+    const prev = emblaApi.canScrollPrev();
+    const next = emblaApi.canScrollNext();
+    setCanScrollPrev(prev);
+    setCanScrollNext(next);
+    setFits(!prev && !next);
   }, [emblaApi]);
 
   // Refs (not state/deps) so this doesn't need to re-subscribe every time
@@ -225,14 +243,20 @@ export function CarouselRow({
         </div>
       ) : null}
 
-      <div className={cn("relative", showArrows && "sm:px-12")}>
+      {/* No horizontal padding gutter for the arrows — that used to inset the
+       * whole scroll area (pushing the first card ~48px in from the page's
+       * content column). Instead the arrows overlay the card edges (Netflix
+       * style): the left one anchored to the content-column edge, the right
+       * one just inside the bleeding right edge. */}
+      <div className="relative">
         {showArrows && canScrollPrev && (
           <button
             type="button"
             onClick={scrollPrev}
             aria-label={`Scroll ${title || "albums"} left`}
             className={cn(
-              "absolute left-0 top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:flex",
+              "absolute top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:flex",
+              BLEED_LEFT,
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
               "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
@@ -249,7 +273,7 @@ export function CarouselRow({
             onClick={scrollNext}
             aria-label={`Scroll ${title || "albums"} right`}
             className={cn(
-              "absolute right-0 top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:flex",
+              "absolute right-2 top-1/2 z-30 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full sm:right-4 sm:flex",
               "border border-foreground/15 bg-[var(--color-nav-bg)] text-foreground shadow-xl backdrop-blur-md",
               "transition-all duration-200 hover:scale-105 hover:bg-surface-elevated active:scale-95 motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
@@ -286,11 +310,11 @@ export function CarouselRow({
             "cursor-grab active:cursor-grabbing",
           )}
         >
-          {/* justify-center only takes effect when the row's slides don't
-           * fill the viewport (nothing to scroll) — Embla still translates
-           * this element for the scrollable case, where centering has no
-           * visible effect since there's no slack to distribute. */}
-          <div className="flex touch-pan-y justify-center">
+          {/* Center ONLY when the whole row fits (nothing to scroll). On an
+           * overflowing row, `justify-center` splits the overflow across both
+           * ends — clipping the first and last cards under Embla's own scroll
+           * transform — so overflowing rows must stay start-aligned. */}
+          <div className={cn("flex touch-pan-y", fits && "justify-center")}>
             {items.map((rec) => (
               <div
                 key={rec.discogsReleaseId}

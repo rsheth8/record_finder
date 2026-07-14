@@ -18,7 +18,7 @@ import { getSimilarArtists, isLastfmConfigured } from "@/lib/lastfm/client";
 import type { SimilarArtist } from "@/lib/lastfm/client";
 import { searchAlbum as searchAppleMusicAlbum } from "@/lib/apple-music/client";
 import { mapWithConcurrency } from "@/lib/utils/rate-limited-pool";
-import { isFullAlbum, isReissue } from "@/lib/recommendations/match";
+import { isFullAlbum, isReissue, normalize } from "@/lib/recommendations/match";
 import type { StoredSpotifySnapshot } from "@/lib/db/queries";
 
 /** Quiz moods map to genre/tag hints (from MusicBrainz/Last.fm) so a mood
@@ -315,15 +315,12 @@ export function collectReasonBuckets(
     spotify.push(`Deep cut from an artist you love long-term`);
   }
 
-  const matchedDecade = profile.decades.find((d) => {
-    if (!rec.year) return false;
-    const decade = Math.floor(rec.year / 10) * 10;
-    return decade === parseInt(d.replace("s", ""), 10);
-  });
-  if (matchedDecade) {
-    quiz.push(`Fits your ${matchedDecade} era preference`);
-  }
-
+  // Genre/mood are checked (and pushed) before decade on purpose: a batch
+  // that's inherently recent-leaning (e.g. Spotify-seeded "top picks" for an
+  // active listener) makes near-every candidate qualify for the same decade
+  // reason, while genre/mood tie back to an actual quiz *choice* the user
+  // made among several options — more specific, so it should win the earlier
+  // interleave slot when the poster card's 2-line cap can't show both.
   const matchedGenre = profile.genres.find((g) =>
     rec.genres.some((rg) => rg.toLowerCase().includes(g.toLowerCase())),
   );
@@ -338,6 +335,15 @@ export function collectReasonBuckets(
   );
   if (matchedMood) {
     quiz.push(`Has that ${matchedMood.toLowerCase()} feel you picked`);
+  }
+
+  const matchedDecade = profile.decades.find((d) => {
+    if (!rec.year) return false;
+    const decade = Math.floor(rec.year / 10) * 10;
+    return decade === parseInt(d.replace("s", ""), 10);
+  });
+  if (matchedDecade) {
+    quiz.push(`Fits your ${matchedDecade} era preference`);
   }
 
   const recognizedArtists = context.quizRecognizedArtists;
@@ -488,6 +494,26 @@ async function enrichCandidate(vinyl: Recommendation): Promise<Recommendation> {
   };
 }
 
+/** Collapses different Spotify editions of the same real-world album (e.g. a
+ * "Deluxe"/live/anniversary edition surfaced from one seed category and the
+ * standard edition from another — a popular album can get suggested from
+ * several of `fetchDiscoveryAlbums`'s seed categories at once) to one entry
+ * *before* spending a rate-limited Discogs lookup on each. Both would collapse
+ * to the same vinyl release in `dedupeRecommendations` downstream anyway, so
+ * deduping this early means the fixed lookup budget below covers more unique
+ * albums instead of burning slots on candidates known to be redundant. */
+export function dedupeSpotifyCandidates(candidates: SpotifyAlbum[]): SpotifyAlbum[] {
+  const seen = new Set<string>();
+  const out: SpotifyAlbum[] = [];
+  for (const album of candidates) {
+    const key = `${normalize(album.artist)}::${normalize(album.name)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(album);
+  }
+  return out;
+}
+
 export async function scoreCandidates(
   candidates: SpotifyAlbum[],
   profile: TasteProfileData,
@@ -514,7 +540,7 @@ export async function scoreCandidates(
   const quizArtistAffinity = buildQuizArtistAffinity(quizRecognizedArtists);
 
   const scored = await mapWithConcurrency(
-    candidates.slice(0, 35),
+    dedupeSpotifyCandidates(candidates).slice(0, 35),
     4,
     async (album) => {
       const vinyl = await searchVinylRelease(album.artist, album.name);

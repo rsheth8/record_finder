@@ -16,3 +16,11 @@ export const BLEED_PX = "px-4 sm:px-[max(1rem,calc((100vw-72rem)/2+1rem))]";
 export const BLEED_MX = "mx-4 sm:mx-[max(1rem,calc((100vw-72rem)/2+1rem))]";
 export const BLEED_PL = "pl-4 sm:pl-[max(1rem,calc((100vw-72rem)/2+1rem))]";
 export const BLEED_PR = "pr-4 sm:pr-[max(1rem,calc((100vw-72rem)/2+1rem))]";
+
+/**
+ * Same width formula as BLEED_PL/BLEED_PR, for an edge fade that sits exactly
+ * inside the gutter it shares a container with (e.g. a carousel row's
+ * overflow-hidden viewport) — sized any wider and it visibly washes out over
+ * the first/last card's own artwork instead of just the empty margin.
+ */
+export const BLEED_FADE_W = "w-4 sm:w-[max(1rem,calc((100vw-72rem)/2+1rem))]";

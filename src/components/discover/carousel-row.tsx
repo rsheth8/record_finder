@@ -7,7 +7,7 @@ import type { EmblaOptionsType, EmblaPluginType } from "embla-carousel";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { Recommendation } from "@/lib/types";
 import { PosterCard } from "@/components/discover/poster-card";
-import { BLEED_PL, BLEED_PR } from "@/lib/layout";
+import { BLEED_PL, BLEED_PR, BLEED_FADE_W } from "@/lib/layout";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
@@ -64,11 +64,19 @@ export function CarouselRow({
 
   // Looping is required for a seamless continuous drift; without auto-scroll
   // we keep the snap-to-edges behavior (trimSnaps) the browse rows rely on.
+  // `slidesToScroll: "auto"` groups slides into whole-viewport "pages" for
+  // snap points — fine for the arrow buttons (a deliberate page-at-a-time
+  // jump), but with `dragFree: false` a manual swipe/drag *also* snapped to
+  // those same page-sized points, so even a small drag could jump 4-5 cards
+  // at once instead of tracking the finger. `dragFree: true` decouples
+  // dragging from the snap grid — it free-scrolls with momentum and settles
+  // wherever it lands, while `scrollNext`/`scrollPrev` (the buttons) are
+  // unaffected and still jump by full pages.
   const emblaOptions = useMemo<EmblaOptionsType>(
     () => ({
       loop: enableAutoScroll,
       align: "start",
-      dragFree: false,
+      dragFree: !enableAutoScroll,
       containScroll: enableAutoScroll ? false : "trimSnaps",
       slidesToScroll: "auto",
     }),
@@ -252,14 +260,21 @@ export function CarouselRow({
           </button>
         )}
 
+        {/* Sized to exactly match the viewport's own bleed padding below, so
+         * the fade only ever dresses up the empty gutter — never the first
+         * or last card's actual artwork (a wider fixed width, e.g. w-14,
+         * washed out over ~40px of album art at viewport widths where the
+         * gutter is still small). */}
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent sm:w-14",
+            "pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r from-background to-transparent",
+            BLEED_FADE_W,
           )}
         />
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent sm:w-14",
+            "pointer-events-none absolute inset-y-0 right-0 z-10 bg-gradient-to-l from-background to-transparent",
+            BLEED_FADE_W,
           )}
         />
 

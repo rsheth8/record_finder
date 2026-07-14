@@ -111,6 +111,24 @@ describe("pickBestMatch", () => {
   it("returns null for an empty result set", () => {
     expect(pickBestMatch("Anyone", "Anything", [])).toBeNull();
   });
+
+  it("breaks a confidence tie in favor of the earliest pressing", () => {
+    const results: DiscogsSearchResult[] = [
+      result({ id: 20, title: "J. Cole - 2014 Forest Hills Drive", year: "2024", format: ["Vinyl", "LP"] }),
+      result({ id: 21, title: "J. Cole - 2014 Forest Hills Drive", year: "2014", format: ["Vinyl", "LP"] }),
+    ];
+    const best = pickBestMatch("J. Cole", "2014 Forest Hills Drive", results);
+    expect(best?.id).toBe(21);
+  });
+
+  it("prefers a dated pressing over an equally-confident undated one", () => {
+    const results: DiscogsSearchResult[] = [
+      result({ id: 22, title: "Radiohead - OK Computer", format: ["Vinyl", "LP"] }),
+      result({ id: 23, title: "Radiohead - OK Computer", year: "1997", format: ["Vinyl", "LP"] }),
+    ];
+    const best = pickBestMatch("Radiohead", "OK Computer", results);
+    expect(best?.id).toBe(23);
+  });
 });
 
 describe("isFullAlbum", () => {

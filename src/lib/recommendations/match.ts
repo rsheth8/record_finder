@@ -85,8 +85,28 @@ export function scoreDiscogsMatch(
   return score;
 }
 
+function parseYear(year?: string): number | null {
+  const n = year ? parseInt(year, 10) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/** True when `candidate` is an earlier (or the only dated) pressing than
+ * `current` — used to break a match-confidence tie in favor of the original
+ * release rather than whichever repress the search API happened to return
+ * later. A candidate with no year never wins a tie. */
+function isEarlierYear(candidate?: string, current?: string): boolean {
+  const c = parseYear(candidate);
+  if (c === null) return false;
+  const cur = parseYear(current);
+  return cur === null || c < cur;
+}
+
 /** Picks the highest-confidence Discogs vinyl match, or null if none clears the
- * confidence bar (so a bad candidate is dropped rather than mis-matched). */
+ * confidence bar (so a bad candidate is dropped rather than mis-matched).
+ * Discogs indexes many pressings of the same album with identical artist/title
+ * text (reissues, represses) — those score identically on confidence alone, so
+ * ties are broken toward the earliest year (the original release) rather than
+ * whichever pressing the search API happened to list later. */
 export function pickBestMatch(
   queryArtist: string,
   queryTitle: string,
@@ -98,7 +118,8 @@ export function pickBestMatch(
 
   for (const result of results) {
     const score = scoreDiscogsMatch(queryArtist, queryTitle, result);
-    if (score >= bestScore) {
+    if (score < bestScore) continue;
+    if (score > bestScore || best === null || isEarlierYear(result.year, best.year)) {
       bestScore = score;
       best = result;
     }

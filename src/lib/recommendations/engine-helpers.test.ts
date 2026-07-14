@@ -9,6 +9,7 @@ import {
   collectReasonBuckets,
   interleaveReasons,
   hasSpotifyReason,
+  dedupeSpotifyCandidates,
 } from "@/lib/recommendations/engine";
 import { deriveTopGenres } from "@/lib/spotify/client";
 import type {
@@ -353,5 +354,38 @@ describe("collectReasonBuckets", () => {
     });
     expect(seenLive.quiz).toContain("You told us you've seen Test Artist live");
     expect(seenLive.quiz).not.toContain("You already own Test Artist on vinyl");
+  });
+});
+
+describe("dedupeSpotifyCandidates", () => {
+  function spotifyAlbum(overrides: Partial<SpotifyAlbum>): SpotifyAlbum {
+    return {
+      id: "id1",
+      name: "Album",
+      artist: "Artist",
+      artistId: "artist1",
+      releaseDate: "2020-01-01",
+      imageUrl: null,
+      spotifyUrl: "",
+      ...overrides,
+    };
+  }
+
+  it("collapses different Spotify editions of the same album to the first seen", () => {
+    const candidates = [
+      spotifyAlbum({ id: "std", name: "Reputation" }),
+      spotifyAlbum({ id: "deluxe", name: "reputation (Deluxe)" }),
+    ];
+    const result = dedupeSpotifyCandidates(candidates);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("std");
+  });
+
+  it("keeps distinct albums and preserves order", () => {
+    const candidates = [
+      spotifyAlbum({ id: "a", name: "Album A" }),
+      spotifyAlbum({ id: "b", name: "Album B", artist: "Other Artist" }),
+    ];
+    expect(dedupeSpotifyCandidates(candidates)).toHaveLength(2);
   });
 });

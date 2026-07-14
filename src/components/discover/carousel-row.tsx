@@ -254,14 +254,12 @@ export function CarouselRow({
 
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent sm:w-10",
-            !canScrollPrev && "opacity-0",
+            "pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-background to-transparent sm:w-14",
           )}
         />
         <div
           className={cn(
-            "pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent sm:w-10",
-            !canScrollNext && "opacity-0",
+            "pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-background to-transparent sm:w-14",
           )}
         />
 
@@ -273,7 +271,11 @@ export function CarouselRow({
             "cursor-grab active:cursor-grabbing",
           )}
         >
-          <div className="flex touch-pan-y">
+          {/* justify-center only takes effect when the row's slides don't
+           * fill the viewport (nothing to scroll) — Embla still translates
+           * this element for the scrollable case, where centering has no
+           * visible effect since there's no slack to distribute. */}
+          <div className="flex touch-pan-y justify-center">
             {items.map((rec) => (
               <div
                 key={rec.discogsReleaseId}

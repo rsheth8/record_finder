@@ -8,7 +8,6 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { THEMES, isImmersiveTheme } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 export function NoirHero({
@@ -25,9 +24,9 @@ export function NoirHero({
   coverUrls: string[];
 }) {
   const reducedMotion = useReducedMotion();
-  const { theme } = useTheme();
-  const themeLabel = THEMES.find((t) => t.id === theme)?.label ?? "Record Finder";
-  const isImmersive = isImmersiveTheme(theme);
+  const { mode } = useTheme();
+  const themeLabel = "Dust Jacket";
+  const isImmersive = mode === "dark";
   const sectionRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const subtitleRef = useRef<HTMLParagraphElement>(null);

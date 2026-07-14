@@ -1,80 +1,11 @@
-export const THEME_IDS = [
-  "midnight-wax",
-  "record-store-noir",
-  "analog-warmth",
-  "neon-crate",
-  "hifi-minimal",
-  "jazz-club",
-] as const;
+export const THEME_MODES = ["dark", "light"] as const;
 
-export type ThemeId = (typeof THEME_IDS)[number];
+export type ThemeMode = (typeof THEME_MODES)[number];
 
-export const DEFAULT_THEME: ThemeId = "record-store-noir";
+export const DEFAULT_MODE: ThemeMode = "dark";
 
-export const THEME_STORAGE_KEY = "record-finder-theme";
+export const MODE_STORAGE_KEY = "record-finder-mode";
 
-export interface ThemeMeta {
-  id: ThemeId;
-  label: string;
-  description: string;
-  swatches: [string, string, string];
-}
-
-export const THEMES: ThemeMeta[] = [
-  {
-    id: "midnight-wax",
-    label: "Midnight Wax",
-    description: "Cinematic violet on deep zinc — refined vinyl nights",
-    swatches: ["#09090b", "#8b5cf6", "#18181b"],
-  },
-  {
-    id: "record-store-noir",
-    label: "Record Store Noir",
-    description: "Warm amber glow in a dim record shop",
-    swatches: ["#0c0a09", "#f59e0b", "#1c1917"],
-  },
-  {
-    id: "analog-warmth",
-    label: "Analog Warmth",
-    description: "Cream and burnt orange — 70s hi-fi lounge",
-    swatches: ["#faf7f2", "#c2410c", "#f0ebe3"],
-  },
-  {
-    id: "neon-crate",
-    label: "Neon Crate-Digger",
-    description: "Electric cyan and fuchsia — late-night city dig",
-    swatches: ["#0a0a0f", "#22d3ee", "#e879f9"],
-  },
-  {
-    id: "hifi-minimal",
-    label: "Hi-Fi Minimal",
-    description: "Pure black and white — album art is the color",
-    swatches: ["#000000", "#ffffff", "#262626"],
-  },
-  {
-    id: "jazz-club",
-    label: "Jazz Club",
-    description: "Deep wine and champagne gold — velvet sophistication",
-    swatches: ["#1a0a0f", "#d4a574", "#2d1219"],
-  },
-];
-
-export function isThemeId(value: string): value is ThemeId {
-  return (THEME_IDS as readonly string[]).includes(value);
-}
-
-/**
- * Dark, cinematic themes that get the full ambient scene (spinning vinyl,
- * light beam, glow orbs). Light/minimal themes stay clean. Scene colors are
- * driven by each theme's accent/surface tokens, so it adapts automatically.
- */
-export const IMMERSIVE_THEMES: readonly ThemeId[] = [
-  "midnight-wax",
-  "record-store-noir",
-  "neon-crate",
-  "jazz-club",
-];
-
-export function isImmersiveTheme(value: ThemeId): boolean {
-  return IMMERSIVE_THEMES.includes(value);
+export function isThemeMode(value: string): value is ThemeMode {
+  return (THEME_MODES as readonly string[]).includes(value);
 }

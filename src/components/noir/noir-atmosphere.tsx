@@ -4,16 +4,17 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useTheme } from "@/components/theme-provider";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { isImmersiveTheme } from "@/lib/themes";
 
 export function NoirAtmosphere() {
-  const { theme } = useTheme();
+  const { mode } = useTheme();
   const reducedMotion = useReducedMotion();
   const orb1Ref = useRef<HTMLDivElement>(null);
   const orb2Ref = useRef<HTMLDivElement>(null);
   const orb3Ref = useRef<HTMLDivElement>(null);
 
-  const isImmersive = isImmersiveTheme(theme);
+  // The ambient scene (spinning vinyl, glow orbs, light beam) only suits the
+  // dark, dim-record-shop take on Dust Jacket — light mode stays clean paper.
+  const isImmersive = mode === "dark";
 
   useEffect(() => {
     if (!isImmersive || reducedMotion) return;
@@ -55,7 +56,6 @@ export function NoirAtmosphere() {
         style={{ bottom: "15%", left: "35%" }}
       />
 
-      <div className="noir-atmosphere__grain ambient-bg ambient-bg--grain" />
       <div className="noir-atmosphere__vignette" />
       <div className="noir-atmosphere__floor-glow" />
     </div>

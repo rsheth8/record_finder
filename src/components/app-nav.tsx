@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Compass, Disc3, Heart, Home, Search, User } from "lucide-react";
 import { CreditsNavLink } from "@/components/credits/credits-nav-link";
 import { DashboardNavLink } from "@/components/dashboard/dashboard-nav-link";
-import { ThemePicker } from "@/components/theme-picker";
+import { ModeToggle } from "@/components/mode-toggle";
 import { cn } from "@/lib/utils";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
@@ -66,12 +66,12 @@ export function AppNav() {
           })}
           <CreditsNavLink />
           <DashboardNavLink />
-          <ThemePicker className="ml-2" />
+          <ModeToggle className="ml-2" />
         </nav>
 
         <div className="flex items-center gap-2 md:hidden">
           <CreditsNavLink />
-          <ThemePicker />
+          <ModeToggle />
         </div>
       </div>
     </header>

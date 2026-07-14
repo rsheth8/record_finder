@@ -8,24 +8,25 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  DEFAULT_THEME,
-  THEME_STORAGE_KEY,
-  type ThemeId,
-  isThemeId,
+  DEFAULT_MODE,
+  MODE_STORAGE_KEY,
+  type ThemeMode,
+  isThemeMode,
 } from "@/lib/themes";
 
 interface ThemeContextValue {
-  theme: ThemeId;
-  setTheme: (theme: ThemeId) => void;
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+  toggleMode: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function applyTheme(theme: ThemeId) {
-  document.documentElement.setAttribute("data-theme", theme);
+function applyMode(mode: ThemeMode) {
+  document.documentElement.setAttribute("data-theme", mode);
 }
 
-// localStorage-backed store so the theme reads as external state (no
+// localStorage-backed store so the mode reads as external state (no
 // setState-in-effect). Same-tab writes notify via an explicit listener set;
 // cross-tab writes arrive through the native "storage" event.
 const listeners = new Set<() => void>();
@@ -39,32 +40,36 @@ function subscribe(callback: () => void) {
   };
 }
 
-function readStoredTheme(): ThemeId {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  return stored && isThemeId(stored) ? stored : DEFAULT_THEME;
+function readStoredMode(): ThemeMode {
+  const stored = localStorage.getItem(MODE_STORAGE_KEY);
+  return stored && isThemeMode(stored) ? stored : DEFAULT_MODE;
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const theme = useSyncExternalStore(
+  const mode = useSyncExternalStore(
     subscribe,
-    readStoredTheme,
-    () => DEFAULT_THEME,
+    readStoredMode,
+    () => DEFAULT_MODE,
   );
 
-  // Keep the DOM attribute in sync with the active theme. Pure external-system
+  // Keep the DOM attribute in sync with the active mode. Pure external-system
   // sync — no React state is set here.
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    applyMode(mode);
+  }, [mode]);
 
-  const setTheme = useCallback((next: ThemeId) => {
-    localStorage.setItem(THEME_STORAGE_KEY, next);
-    applyTheme(next);
+  const setMode = useCallback((next: ThemeMode) => {
+    localStorage.setItem(MODE_STORAGE_KEY, next);
+    applyMode(next);
     listeners.forEach((l) => l());
   }, []);
 
+  const toggleMode = useCallback(() => {
+    setMode(mode === "dark" ? "light" : "dark");
+  }, [mode, setMode]);
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={{ mode, setMode, toggleMode }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -73,7 +78,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 export function useTheme() {
   const ctx = useContext(ThemeContext);
   if (!ctx) {
-    return { theme: DEFAULT_THEME, setTheme: () => {} };
+    return { mode: DEFAULT_MODE, setMode: () => {}, toggleMode: () => {} };
   }
   return ctx;
 }

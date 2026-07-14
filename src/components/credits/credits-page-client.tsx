@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { ThemePicker } from "@/components/theme-picker";
+import { ModeToggle } from "@/components/mode-toggle";
 import { FREE_CREDIT_BONUSES } from "@/lib/commerce/free-credits";
 import { formatCredits } from "@/lib/commerce/pricing";
 import { Loader2, Coins, Gift, Clock } from "lucide-react";
@@ -89,7 +89,7 @@ export function CreditsPageClient({
               </p>
             </div>
           </div>
-          <ThemePicker />
+          <ModeToggle />
         </div>
       </Card>
 

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { QUIZ_GENRES, QUIZ_DECADES, type QuizGenre, type QuizDecade } from "@/lib/types";
-import type { SearchSortOption } from "@/lib/discogs/client";
+import { SEARCH_FORMATS, type SearchSortOption, type SearchFormat } from "@/lib/discogs/client";
 import { cn } from "@/lib/utils";
 import { SlidersHorizontal, X } from "lucide-react";
 
@@ -13,17 +13,32 @@ export interface SearchFilterState {
   genre: QuizGenre | null;
   decade: QuizDecade | null;
   sort: SearchSortOption;
+  format: SearchFormat | null;
 }
 
 export const DEFAULT_SEARCH_FILTERS: SearchFilterState = {
   genre: null,
   decade: null,
   sort: "relevance",
+  format: null,
 };
 
 export function hasActiveSearchFilters(filters: SearchFilterState): boolean {
-  return filters.genre !== null || filters.decade !== null || filters.sort !== "relevance";
+  return (
+    filters.genre !== null ||
+    filters.decade !== null ||
+    filters.format !== null ||
+    filters.sort !== "relevance"
+  );
 }
+
+/** Human labels for the vinyl-size format facet. */
+const FORMAT_LABELS: Record<SearchFormat, string> = {
+  LP: "LP",
+  '12"': '12"',
+  '10"': '10"',
+  '7"': '7" Single',
+};
 
 const SORT_OPTIONS: { value: SearchSortOption; label: string }[] = [
   { value: "relevance", label: "Best match" },
@@ -76,10 +91,12 @@ export function SearchFilters({
 }) {
   const [expanded, setExpanded] = useState(false);
   const active = hasActiveSearchFilters(filters);
-  const activeCount = [filters.genre ? 1 : 0, filters.decade ? 1 : 0, filters.sort !== "relevance" ? 1 : 0].reduce(
-    (a, b) => a + b,
-    0,
-  );
+  const activeCount = [
+    filters.genre ? 1 : 0,
+    filters.decade ? 1 : 0,
+    filters.format ? 1 : 0,
+    filters.sort !== "relevance" ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
 
   function reset() {
     onChange(DEFAULT_SEARCH_FILTERS);
@@ -166,6 +183,25 @@ export function SearchFilters({
                   }
                 >
                   {decade}
+                </FilterPill>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
+              Format
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {SEARCH_FORMATS.map((format) => (
+                <FilterPill
+                  key={format}
+                  active={filters.format === format}
+                  onClick={() =>
+                    onChange({ ...filters, format: filters.format === format ? null : format })
+                  }
+                >
+                  {FORMAT_LABELS[format]}
                 </FilterPill>
               ))}
             </div>

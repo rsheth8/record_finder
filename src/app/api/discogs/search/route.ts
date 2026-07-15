@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchCatalog, type SearchSortOption } from "@/lib/discogs/client";
+import {
+  searchCatalog,
+  SEARCH_FORMATS,
+  type SearchSortOption,
+  type SearchFormat,
+} from "@/lib/discogs/client";
 import { logEvent } from "@/lib/db/queries";
 import { getOrCreateUserId } from "@/lib/identity";
 import { GENRE_DISCOGS_PARAM } from "@/lib/discogs/genre-map";
@@ -42,6 +47,10 @@ export async function GET(request: NextRequest) {
   const sort = SEARCH_SORT_OPTIONS.includes(sortParam as SearchSortOption)
     ? (sortParam as SearchSortOption)
     : undefined;
+  const formatParam = searchParams.get("format");
+  const format = SEARCH_FORMATS.includes(formatParam as SearchFormat)
+    ? (formatParam as SearchFormat)
+    : undefined;
 
   if (!process.env.DISCOGS_TOKEN) {
     return NextResponse.json(
@@ -67,6 +76,7 @@ export async function GET(request: NextRequest) {
       genre,
       decade,
       sort,
+      format,
     });
     // Unenriched: no price/rating/fairValue yet (all default to null/false).
     // The client requests enrichment for just the items about to be visible

@@ -431,6 +431,18 @@ function sortParams(sort: SearchSortOption): string {
   }
 }
 
+/** Vinyl sub-formats offered as a search facet — the physical pressing sizes.
+ * Discogs' search only honors ONE `format` param (a second is silently
+ * ignored — verified live), so when one of these is chosen it *replaces*
+ * `format=Vinyl` as the single facet. Deliberately limited to values that are
+ * themselves vinyl-specific (LP / 12" / 10" / 7"), so dropping the explicit
+ * `Vinyl` facet still returns only vinyl — verified live that each both
+ * narrows the count and keeps every result vinyl. (EP / Box Set were dropped:
+ * they aren't vinyl-exclusive, so as a lone facet they'd leak CDs.) */
+export type SearchFormat = "LP" | '12"' | '10"' | '7"';
+
+export const SEARCH_FORMATS: SearchFormat[] = ["LP", '12"', '10"', '7"'];
+
 export interface SearchCatalogFilters {
   genre?: QuizGenre;
   /** Discogs has no decade-range search param (only an exact `year`), so this
@@ -438,6 +450,7 @@ export interface SearchCatalogFilters {
    * a keyword token to the query text rather than a precise filter. */
   decade?: QuizDecade;
   sort?: SearchSortOption;
+  format?: SearchFormat;
 }
 
 /** Full-catalog vinyl search for the /search page — unlike searchVinylRelease
@@ -460,13 +473,16 @@ export async function searchCatalog(
         GENRE_DISCOGS_PARAM[filters.genre].value,
       )}`
     : "";
+  // The single honored format facet: a chosen vinyl sub-format (LP/12"/10"/7",
+  // each itself vinyl) replaces the plain `Vinyl` facet — see SearchFormat.
+  const formatFacet = filters.format ?? "Vinyl";
   const sort = sortParams(filters.sort ?? "relevance");
 
   const data = await discogsFetch<{
     results?: DiscogsSearchResult[];
     pagination?: { page: number; pages: number; items: number; per_page: number };
   }>(
-    `/database/search?q=${q}&type=release&format=Vinyl${genreParam}${sort}&page=${clampedPage}&per_page=${SEARCH_PER_PAGE}`,
+    `/database/search?q=${q}&type=release&format=${encodeURIComponent(formatFacet)}${genreParam}${sort}&page=${clampedPage}&per_page=${SEARCH_PER_PAGE}`,
   );
 
   return {

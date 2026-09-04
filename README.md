@@ -1,5 +1,15 @@
 # Record Finder
 
+Personalized vinyl recommendations from your Spotify listening (or a short taste quiz), pulled from Discogs with marketplace prices, fair-value signals, and price-drop emails.
+
+| | |
+| --- | --- |
+| **Author** | [Rahil Sheth](https://github.com/rsheth8) |
+| **Live** | [record-finder-nine.vercel.app](https://record-finder-nine.vercel.app) |
+| **Stack** | Next.js 16, React 19, TypeScript, Tailwind, NextAuth (Spotify), Drizzle + SQLite/Turso, Discogs, Resend |
+| **Status** | Live personal product. Search and the quiz work without an account. |
+
+
 A vinyl discovery app that turns your Spotify listening history (or a quick taste quiz) into personalized vinyl record recommendations, sourced from Discogs, with pricing, fair-value signals, and price-drop alerts.
 
 ## What this is

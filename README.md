@@ -9,9 +9,6 @@ Personalized vinyl recommendations from your Spotify listening (or a short taste
 | **Stack** | Next.js 16, React 19, TypeScript, Tailwind, NextAuth (Spotify), Drizzle + SQLite/Turso, Discogs, Resend |
 | **Status** | Live personal product. Search and the quiz work without an account. |
 
-
-A vinyl discovery app that turns your Spotify listening history (or a quick taste quiz) into personalized vinyl record recommendations, sourced from Discogs, with pricing, fair-value signals, and price-drop alerts.
-
 ## What this is
 
 Record Finder helps people find vinyl records worth buying. Instead of scrolling Discogs' full catalog with no guidance, you either:

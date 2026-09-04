@@ -1,18 +1,25 @@
-# Record Finder
-
 <p align="center">
-  <img src="docs/brand/logo.png" width="168" alt="Record Finder">
+  <img src="docs/brand/logo.png" width="128" alt="Record Finder">
 </p>
 
+<h1 align="center">Record Finder</h1>
 
-Personalized vinyl recommendations from your Spotify listening (or a short taste quiz), pulled from Discogs with marketplace prices, fair-value signals, and price-drop emails.
+<p align="center">
+  Spotify taste in, Discogs vinyl out. Emails you when the price actually drops.
+</p>
 
-| | |
-| --- | --- |
-| **Author** | [Rahil Sheth](https://github.com/rsheth8) |
-| **Live** | [record-finder-nine.vercel.app](https://record-finder-nine.vercel.app) |
-| **Stack** | Next.js 16, React 19, TypeScript, Tailwind, NextAuth (Spotify), Drizzle + SQLite/Turso, Discogs, Resend |
-| **Status** | Live personal product. Search and the quiz work without an account. |
+<p align="center">
+  <a href="https://record-finder-nine.vercel.app">Live</a>&nbsp;·&nbsp;<a href="https://github.com/rsheth8/record_finder">Source</a>&nbsp;·&nbsp;<a href="CONTRIBUTING.md">Run locally</a>
+</p>
+
+<p align="center">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=nextdotjs">
+  <img alt="Discogs" src="https://img.shields.io/badge/catalog-Discogs-111?style=flat-square">
+</p>
+
+<p align="center"><sub>Search and the quiz work with no account.</sub></p>
+
+---
 
 ## What this is
 

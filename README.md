@@ -1,5 +1,10 @@
 # Record Finder
 
+<p align="center">
+  <img src="docs/brand/logo.png" width="168" alt="Record Finder">
+</p>
+
+
 Personalized vinyl recommendations from your Spotify listening (or a short taste quiz), pulled from Discogs with marketplace prices, fair-value signals, and price-drop emails.
 
 | | |
@@ -183,3 +188,10 @@ Optional environment variables (see `.env.example` for full detail): `LASTFM_API
 - **Deduping across pressings.** The same album often exists as many different Discogs releases (different pressings/reissues); recommendations are de-duplicated by normalized artist+title so a user doesn't see the same album five times.
 - **No 3D/WebGL.** An earlier WebGL ambient background was removed in favor of a CSS-only spinning-vinyl scene (better performance, honors `prefers-reduced-motion`).
 - **Cron auth follows Vercel's convention** — the price-snapshot endpoint checks `Authorization: Bearer $CRON_SECRET`, not a custom header, matching how Vercel actually invokes scheduled functions.
+
+## Contributing
+
+PRs and issues welcome. How to run tests, env vars, and the expected layout: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Don't commit `.env`, API keys, or personal recordings.
+
